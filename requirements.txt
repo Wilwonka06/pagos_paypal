@@ -1,0 +1,20 @@
+# Interfaz Gráfica
+customtkinter>=5.2.0
+
+# Automatización web
+selenium>=4.15.0
+
+# Procesamiento de Excel
+pandas>=2.1.0
+openpyxl>=3.1.2
+xlrd>=2.0.1
+
+# Procesamiento de PDFs
+PyMuPDF>=1.23.0
+
+# Utilidades
+python-dateutil>=2.8.2
+
+# Build para PyInstaller
+pyinstaller>=6.5.0
+pyinstaller-hooks-contrib>=2024.0
