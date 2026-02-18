@@ -46,7 +46,7 @@ class PaymentApp(ctk.CTk):
         super().__init__()
         
         # Configuración de ventana
-        self.title("💰 Automatización de Pagos PayPal v1.0")
+        self.title(" Automatización de Pagos PayPal")
         self.geometry("900x650")
         self.minsize(800, 550)
         self.resizable(True, True)
@@ -128,10 +128,7 @@ class PaymentApp(ctk.CTk):
         self.create_idle_content()
         self.create_running_content()
         self.create_completed_content()
-        
-        # Mostrar estado inicial
-        self.show_state(STATE_IDLE)
-        
+                
         # ========== BARRA DE ESTADO ==========
         self.status_frame = ctk.CTkFrame(
             self,
@@ -159,6 +156,9 @@ class PaymentApp(ctk.CTk):
         )
         self.progress_bar.set(0)
         self.progress_bar.pack(side="right", padx=20, pady=12)
+        
+        # Mostrar estado inicial
+        self.show_state(STATE_IDLE)
         
     def create_idle_content(self):
         """Crea el contenido del estado IDLE (pantalla de bienvenida)"""
@@ -194,7 +194,7 @@ class PaymentApp(ctk.CTk):
         ).pack(anchor="w", padx=20, pady=(15, 10))
         
         steps_text = """
-1. 📁 Verificar y crear carpetas necesarias
+            1. 📁 Verificar y crear carpetas necesarias
 2. 📥 Descargar reportes desde SAP
 3. 📄 Buscar documentos PDF asociados
 4. 📊 Procesar archivos Excel
@@ -230,7 +230,7 @@ class PaymentApp(ctk.CTk):
         # Botón Ejecutar grande
         self.btn_ejecutar = ctk.CTkButton(
             self.idle_frame,
-            text="🚀 EJECUTAR PROCESO COMPLETO",
+            text="EJECUTAR PROCESO COMPLETO",
             command=self.start_workflow,
             fg_color=COLOR_PRIMARY,
             hover_color="#25A25A",
@@ -529,7 +529,7 @@ class PaymentApp(ctk.CTk):
             self.log_message(f"❌ Error en proceso: {e}")
             self.after(0, lambda: messagebox.showerror("Error", f"Error en el proceso:\n{e}"))
             self.operation_running = False
-            self.after(0, lambda: self.btn_ejecutar.configure(state="normal", text="🚀 EJECUTAR PROCESO COMPLETO"))
+            self.after(0, lambda: self.btn_ejecutar.configure(state="normal", text=" EJECUTAR PROCESO COMPLETO"))
             
     def run_step(self, step_id, step_function):
         """Ejecuta un paso del workflow"""
@@ -677,7 +677,7 @@ class PaymentApp(ctk.CTk):
         self.main_progress.set(1.0)
         self.progress_label.configure(text="100%")
         
-        self.log_message("🎉 Proceso completado exitosamente")
+        self.log_message(" Proceso completado exitosamente")
         
         # Generar resumen
         summary = f"""
@@ -707,7 +707,7 @@ El sistema está listo para el siguiente pago.
         self.payment_entry.insert(0, str(self.numero_pago))
         
         # Volver al estado idle
-        self.btn_ejecutar.configure(state="normal", text="🚀 EJECUTAR PROCESO COMPLETO")
+        self.btn_ejecutar.configure(state="normal", text=" EJECUTAR PROCESO COMPLETO")
         self.show_state(STATE_IDLE)
         self.update_status("✅ Sistema listo", 0)
         

@@ -37,14 +37,13 @@ class Config:
     # Rutas principales
     BASE_PAYPAL = Path(r"C:\Finanzas\Info Bancos\Pagos Internacionales\PAYPAL")
     RUTA_DESCARGAS = Path.home() / "Downloads"
-    RUTA_MAESTRO = BASE_PAYPAL / "CURIER" / "A_Aplicación" / "Courier Internacional - Reporte Cambiario.xlsm"
+    RUTA_MAESTRO = BASE_PAYPAL / "COURIER" / "A_Aplicación" / "Courier Internacional - Reporte Cambiario.xlsm"
     
     # Rutas de búsqueda de PDFs
     RUTAS_PDF = [
         Path(r"C:\Users\auxconmepa1\GCO\Marco Esteban Escobar Bedoya - Facturas y Guias LATAM Americanino 2025"),
         Path(r"C:\Users\auxconmepa1\GCO\Marco Esteban Escobar Bedoya - Facturas y Guias LATAM Esprit 2025")
     ]
-    
     # Configuración SAP
     SAP_URL = "https://saps4h.gco.com.co/sap/bc/gui/sap/its/webgui/?sap-client=300&sap-language=ES"
     SAP_USER = "AUXCONMEPA1"
@@ -68,6 +67,7 @@ class Config:
     # Timeouts
     TIMEOUT_SAP = 30
     TIMEOUT_DOWNLOAD = 60
+    ACTIVAR_LOG_ARCHIVO = False
 
 # ============================================================================
 # CONFIGURACIÓN DE LOGGING
@@ -76,26 +76,25 @@ class Config:
 def configurar_logging():
     """Configura el sistema de logging"""
     try:
-        log_dir = Path("logs")
-        log_dir.mkdir(exist_ok=True)
-        
-        log_file = log_dir / f"automatizacion_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
-        
+        handlers = [logging.StreamHandler(sys.stdout)]
+        if getattr(Config, "ACTIVAR_LOG_ARCHIVO", False):
+            log_dir = Path("logs")
+            log_dir.mkdir(exist_ok=True)
+            log_file = log_dir / f"automatizacion_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
+            handlers.insert(0, logging.FileHandler(log_file, encoding='utf-8'))
+
         logging.basicConfig(
             level=logging.INFO,
-            format='%(asctime)s - %(levelname)s - %(message)s',
-            handlers=[
-                logging.FileHandler(log_file, encoding='utf-8'),
-                logging.StreamHandler(sys.stdout)
-            ]
+            format="%(asctime)s - %(levelname)s - %(message)s",
+            handlers=handlers,
         )
-        logger = logging.getLogger(__name__)
-        logger.info(f"Sistema de logging iniciado. Archivo log: {log_file}")
-        return logger
+        return logging.getLogger(__name__)
     except Exception as e:
         print(f"ERROR CRÍTICO AL CONFIGURAR LOGGING: {e}")
-        # Fallback a consola si falla el archivo
-        logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+        logging.basicConfig(
+            level=logging.INFO,
+            format="%(asctime)s - %(levelname)s - %(message)s",
+        )
         return logging.getLogger(__name__)
 
 # ============================================================================
@@ -209,8 +208,7 @@ class DescargadorSAP:
             options.set_preference("browser.download.folderList", 2)
             options.set_preference("browser.download.dir", str(self.download_path))
             options.set_preference("browser.download.useDownloadDir", True)
-            options.set_preference("browser.helperApps.neverAsk.saveToDisk", 
-                                 "application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+            options.set_preference("browser.helperApps.neverAsk.saveToDisk", "application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
             
             driver = webdriver.Firefox(options=options)
             self.logger.info("Navegador Firefox configurado correctamente")
@@ -327,13 +325,6 @@ class DescargadorSAP:
             # Campo 2: Sociedad
             self._esperar_y_hacer(wait, By.ID, "M0:46:::2:34", "presence", Config.SAP_SOCIEDAD, "Campo Sociedad")
             
-            # PAUSA MANUAL: Selección de fecha
-            self.logger.info("\n" + "="*60)
-            self.logger.info("ESPERA MANUAL: Por favor, selecciona la FECHA en SAP.")
-            self.logger.info("Tienes 8 segundos para completar la selección manual...")
-            self.logger.info("="*60 + "\n")
-            time.sleep(8)
-            
             # 5. Ejecutar
             self.logger.info("Ejecutando la consulta (botón F8)...")
             self.driver.execute_script("window.scrollTo(0,0)")
@@ -346,59 +337,32 @@ class DescargadorSAP:
             # ESPERA 1: Carga de la tabla inicial
             self.logger.info("Esperando carga de la tabla de resultados (10s)...")
             time.sleep(10)
-            
-            # Paso 1: Ctrl + F9 para "Ajustar" (Layout)
-            self.logger.info("Enviando Ctrl + F9 para ajustar reporte...")
-            try:
-                # Re-enfocar la ventana para asegurar que reciba los comandos
-                self.driver.find_element(By.TAG_NAME, "body").click()
-                time.sleep(1)
-                self.driver.find_element(By.TAG_NAME, "body").send_keys(Keys.CONTROL + Keys.F9)
-                
-                self.logger.info("\n" + "!" * 50)
-                self.logger.info("MODO SEMI-MANUAL: APLICAR AJUSTES (Ctrl + F9)")
-                self.logger.info("Si se abrió el modal de ajuste, aplíquelo ahora.")
-                self.logger.info("Esperando 5 segundos antes de proceder a la exportación...")
-                self.logger.info("!" * 50 + "\n")
-                time.sleep(10)
-            except Exception as e:
-                self.logger.warning(f"No se pudo enviar Ctrl+F9 automáticamente: {e}")
 
-            # Paso 2: Mayus + F4 para Exportar (Hoja de Cálculo)
-            self.logger.info("Enviando Mayus + F4 para exportar directamente...")
+            # Paso 1: Enviar Mayus + F4 para abrir la ventana de exportación
+            self.logger.info("Enviando Mayus + F4 para abrir la ventana de exportación...")
             try:
-                # Volver a enfocar el cuerpo antes del segundo atajo
-                self.driver.find_element(By.TAG_NAME, "body").click()
-                time.sleep(1)
-                self.driver.find_element(By.TAG_NAME, "body").send_keys(Keys.SHIFT + Keys.F4)
-                
-                self.logger.info("\n" + "!" * 50)
-                self.logger.info("MODO SEMI-MANUAL: GUARDAR ARCHIVO (Mayus + F4)")
-                self.logger.info("Si no se abrió el modal de guardado, use clic derecho -> Hoja de cálculo.")
-                self.logger.info(f"Cuando aparezca el nombre, use: {nombre_archivo}")
-                self.logger.info("Esperando 8 segundos...")
-                self.logger.info("!" * 50 + "\n")
-                time.sleep(8)
+                cuerpo = self.driver.find_element(By.TAG_NAME, "body")
+                cuerpo.click()
+                time.sleep(2)
+                cuerpo.send_keys(Keys.SHIFT + Keys.F4)
+                self.logger.info("Atajo Mayus + F4 enviado.")
             except Exception as e:
                 self.logger.warning(f"No se pudo enviar Mayus+F4 automáticamente: {e}")
 
-            # Intentar detectar el modal de nombre de archivo
-            self.logger.info("Intentando detectar el modal de nombre de archivo...")
-            
+            # Paso 2: Rellenar el nombre del archivo y generar
+            self.logger.info("Intentando rellenar el nombre del archivo y generar reporte...")
             try:
-                campo_nombre = wait.until(EC.presence_of_element_located((By.ID, "M1:46:1::1:17")))
+                campo_nombre = WebDriverWait(self.driver, 20).until(
+                    EC.element_to_be_clickable((By.ID, "M1:46:1::1:17"))
+                )
                 campo_nombre.clear()
                 campo_nombre.send_keys(nombre_archivo)
-                
-                # Botón generar
+
                 generar_btn = self.driver.find_element(By.ID, "M1:48::btn[20]")
                 generar_btn.click()
-            except Exception:
-                self.logger.warning("No se pudo detectar el campo de nombre automáticamente.")
-                self.logger.info("Por favor, guarde el archivo MANUALMENTE en Descargas.")
-                self.logger.info(f"REQUISITO: El nombre debe ser exactamente: {nombre_archivo}")
-                self.logger.info("Esperando 10 segundos para descarga manual...")
-                time.sleep(10)
+                self.logger.info(f"Nombre '{nombre_archivo}' enviado y botón Generar presionado.")
+            except Exception as e:
+                self.logger.warning(f"No se pudo completar el llenado del nombre/generación automática: {e}")
             
             # Confirmar descarga si aparece el diálogo de SAP
             try:
