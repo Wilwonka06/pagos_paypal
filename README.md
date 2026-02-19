@@ -302,13 +302,13 @@ Pasos:
    ```
 
 2. Cuando el script lo solicite, ingresa la **ruta de salida** para la carpeta que contendrá el exe  
-   (por ejemplo `C:\Finanzas\Apps\PayPalPagosDist`).  
+   (por ejemplo `O:\Finanzas\Apps\PayPalPagosDist`).  
    Si dejas vacío, usará `dist` dentro del proyecto.
 
 3. Al finalizar, tendrás algo como:
 
    ```text
-   C:\Finanzas\Apps\PayPalPagosDist\PayPalPagos\PayPalPagos.exe
+   O:\Finanzas\Apps\PayPalPagosDist\PayPalPagos\PayPalPagos.exe
    ```
 
 Ese exe abre directamente la interfaz gráfica.

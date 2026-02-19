@@ -14,7 +14,7 @@ set SCRIPT_DIR=%~dp0
 set PROJECT_ROOT=%SCRIPT_DIR%
 set PYTHON_PATH=python
 set VENV_PATH=%PROJECT_ROOT%venv
-set OUTPUT_DIR=C:\Finanzas\Info Bancos\Pagos Internacionales\PAYPAL
+set OUTPUT_DIR=O:\Finanzas\Info Bancos\Pagos Internacionales\PAYPAL
 
 REM ============================================================================
 REM STEP 1: INSTALL DEPENDENCIES
@@ -204,7 +204,7 @@ echo   - Executable: %EXE_PATH%
 echo   - Build folder: %PROJECT_ROOT%build
 echo   - Distribution folder: %OUTPUT_DIR%
 echo   - README: %README_PATH%
-echo   - Default output: C:\Finanzas\Info Bancos\Pagos Internacionales\PAYPAL
+echo   - Default output: O:\Finanzas\Info Bancos\Pagos Internacionales\PAYPAL
 echo.
 echo To rebuild:
 echo   1. Run this script again
@@ -221,7 +221,7 @@ echo   1. Navigate to: %OUTPUT_DIR%\Control_p_Paypal
 echo   2. Run: Control_p_Paypal.exe
 echo.
 echo NOTE: By default, the executable is created in:
-echo       C:\Finanzas\Info Bancos\Pagos Internacionales\PAYPAL\Control_p_Paypal\
+echo       O:\Finanzas\Info Bancos\Pagos Internacionales\PAYPAL\Control_p_Paypal\
 echo.
 pause
 exit /b 0

@@ -35,7 +35,7 @@ class Config:
     """Configuración centralizada del sistema"""
     
     # Rutas principales
-    BASE_PAYPAL = Path(r"C:\Finanzas\Info Bancos\Pagos Internacionales\PAYPAL")
+    BASE_PAYPAL = Path(r"O:\Finanzas\Info Bancos\Pagos Internacionales\PAYPAL")
     RUTA_DESCARGAS = Path.home() / "Downloads"
     RUTA_MAESTRO = BASE_PAYPAL / "COURIER" / "A_Aplicación" / "Courier Internacional - Reporte Cambiario.xlsm"
     
@@ -201,21 +201,25 @@ class DescargadorSAP:
         self.logger = logging.getLogger(__name__)
         self.download_path = Config.RUTA_DESCARGAS
     
-    def configurar_firefox(self) -> webdriver.Firefox:
-        """Configura el navegador Firefox con opciones personalizadas"""
+    def configurar_edge(self) -> webdriver.Edge:
+        """Configura el navegador Microsoft Edge con opciones personalizadas"""
         try:
-            options = webdriver.FirefoxOptions()
-            options.set_preference("browser.download.folderList", 2)
-            options.set_preference("browser.download.dir", str(self.download_path))
-            options.set_preference("browser.download.useDownloadDir", True)
-            options.set_preference("browser.helperApps.neverAsk.saveToDisk", "application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+            options = webdriver.EdgeOptions()
+            options.use_chromium = True
+
+            prefs = {
+                "download.default_directory": str(self.download_path),
+                "download.prompt_for_download": False,
+                "safebrowsing.enabled": True,
+            }
+            options.add_experimental_option("prefs", prefs)
             
-            driver = webdriver.Firefox(options=options)
-            self.logger.info("Navegador Firefox configurado correctamente")
+            driver = webdriver.Edge(options=options)
+            self.logger.info("Navegador Microsoft Edge configurado correctamente")
             return driver
         
         except Exception as e:
-            self.logger.error(f"Error al configurar Firefox: {e}")
+            self.logger.error(f"Error al configurar Microsoft Edge: {e}")
             raise
     
     def esperar_descarga(self, timeout: int = Config.TIMEOUT_DOWNLOAD, patron_alternativo: str = None) -> Optional[Path]:
@@ -234,6 +238,7 @@ class DescargadorSAP:
                 
                 # Verificar que no haya archivos temporales
                 archivos_temp = list(self.download_path.glob("*.part"))
+                archivos_temp.extend(list(self.download_path.glob("*.crdownload")))
                 
                 if archivos and not archivos_temp:
                     # Ordenar por fecha de modificación
@@ -288,7 +293,7 @@ class DescargadorSAP:
         """
         try:
             self.numero_pago_actual = numero_pago
-            self.driver = self.configurar_firefox()
+            self.driver = self.configurar_edge()
             wait = WebDriverWait(self.driver, Config.TIMEOUT_SAP)
             
             # 1. Acceder a SAP
@@ -335,8 +340,8 @@ class DescargadorSAP:
             nombre_archivo = f"pago {getattr(self, 'numero_pago_actual', 1)}"
 
             # ESPERA 1: Carga de la tabla inicial
-            self.logger.info("Esperando carga de la tabla de resultados (10s)...")
-            time.sleep(10)
+            self.logger.info("Esperando carga de la tabla de resultados (15s)...")
+            time.sleep(15)
 
             # Paso 1: Enviar Mayus + F4 para abrir la ventana de exportación
             self.logger.info("Enviando Mayus + F4 para abrir la ventana de exportación...")
