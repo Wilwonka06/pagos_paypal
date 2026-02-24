@@ -35,14 +35,16 @@ class Config:
     """Configuración centralizada del sistema"""
     
     # Rutas principales
-    BASE_PAYPAL = Path(r"O:\Finanzas\Info Bancos\Pagos Internacionales\PAYPAL")
+    BASE_PAYPAL = Path(r"C:\Finanzas\Info Bancos\Pagos Internacionales\PAYPAL")
     RUTA_DESCARGAS = Path.home() / "Downloads"
     RUTA_MAESTRO = BASE_PAYPAL / "COURIER" / "A_Aplicación" / "Courier Internacional - Reporte Cambiario.xlsm"
     
     # Rutas de búsqueda de PDFs
     RUTAS_PDF = [
         Path(r"C:\Users\auxconmepa1\GCO\Marco Esteban Escobar Bedoya - Facturas y Guias LATAM Americanino 2025"),
-        Path(r"C:\Users\auxconmepa1\GCO\Marco Esteban Escobar Bedoya - Facturas y Guias LATAM Esprit 2025")
+        Path(r"C:\Users\auxconmepa1\GCO\Marco Esteban Escobar Bedoya - Facturas y Guias LATAM Esprit 2025"),
+        Path(r"C:\Users\auxconmepa1\GCO\Marco Esteban Escobar Bedoya - Facturas y Guias LATAM Americanino 2026"),
+        Path(r"C:\Users\auxconmepa1\GCO\Marco Esteban Escobar Bedoya - Facturas y Guias LATAM Esprit 2026")
     ]
     # Configuración SAP
     SAP_URL = "https://saps4h.gco.com.co/sap/bc/gui/sap/its/webgui/?sap-client=300&sap-language=ES"
@@ -57,7 +59,8 @@ class Config:
     
     # Columnas del Excel (Orden exacto basado en el archivo Maestro)
     COLUMNAS_SEGUNDA_HOJA = [
-        "Date", "Currency", "Gross", "Fee", "Net", 
+        "Date", "Currency", "Gross", "Fee", "Net",
+        "Prorrateo Disputa", "Prorrateo Normal", "Neto despues de prorrateo",
         "Flete", "Valor mcia",
         "Invoice Numbers", "Número guía", "Fecha del envío", 
         "Order Id Paypal", "Fecha_pago",
@@ -623,7 +626,6 @@ class ProcesadorExcel:
                     f"Llene las fechas del mes actual en el maestro y vuelva a ejecutar."
                 )
             
-            # 4. Seleccionar y renombrar columnas según la configuración final
             df_final = pd.DataFrame(columns=Config.COLUMNAS_SEGUNDA_HOJA)
             
             for col_requerida in Config.COLUMNAS_SEGUNDA_HOJA:
@@ -649,6 +651,44 @@ class ProcesadorExcel:
                     df_final[col_requerida] = serie_datos.values
                 else:
                     df_final[col_requerida] = None
+
+            col_invoice = "Invoice Numbers"
+            columnas_a_llenar = ["Order Id Paypal", "Número guía", "Gross", "Fee", "Flete", "Valor mcia"]
+
+            if col_invoice in df_final.columns:
+                for invoice_val, grupo in df_final.groupby(col_invoice):
+                    if pd.isna(invoice_val) or str(invoice_val).strip() == "":
+                        continue
+                    for col in columnas_a_llenar:
+                        if col not in df_final.columns:
+                            continue
+                        serie_fuente = grupo[col]
+                        serie_fuente = serie_fuente[serie_fuente.notna()]
+                        serie_fuente = serie_fuente[serie_fuente.astype(str).str.strip() != ""]
+                        if serie_fuente.empty:
+                            continue
+                        valor = serie_fuente.iloc[0]
+                        mask_faltante = (df_final[col_invoice] == invoice_val) & (
+                            df_final[col].isna() | (df_final[col].astype(str).str.strip() == "")
+                        )
+                        df_final.loc[mask_faltante, col] = valor
+
+            # Evitar duplicar "Valor mcia" cuando hay pagos divididos (mismo Invoice Numbers)
+            if "Valor mcia" in df_final.columns and col_invoice in df_final.columns:
+                df_final["Valor mcia"] = pd.to_numeric(df_final["Valor mcia"], errors="coerce")
+                for invoice_val, grupo in df_final.groupby(col_invoice):
+                    if pd.isna(invoice_val) or str(invoice_val).strip() == "":
+                        continue
+                    idxs = grupo.index.tolist()
+                    if len(idxs) <= 1:
+                        continue
+                    vals = df_final.loc[idxs, "Valor mcia"].fillna(0)
+                    nz = vals[vals != 0]
+                    if nz.empty:
+                        continue
+                    keep_idx = nz.index[0]
+                    to_zero = [i for i in idxs if i != keep_idx]
+                    df_final.loc[to_zero, "Valor mcia"] = 0
 
             # 5. Formatear columnas de fecha y IDs, y detectar "Próximo pago"
             columnas_fecha = ["Date", "Fecha del envío", "Fecha_pago"]
@@ -773,7 +813,11 @@ class ProcesadorExcel:
             
             # Identificar índices de columnas
             headers = [cell.value for cell in ws[1]]
-            cols_totales = ["Net", "Prorrateo Disputa", "Prorrateo Normal", "Neto despues de prorrateo", "Flete"]
+            cols_totales = [
+                "Gross", "Fee", "Net",
+                "Prorrateo Disputa", "Prorrateo Normal", "Neto despues de prorrateo",
+                "Flete", "Valor mcia"
+            ]
             indices_totales = {col: headers.index(col) + 1 for col in cols_totales if col in headers}
             
             idx_flete = headers.index('Flete') + 1 if 'Flete' in headers else None
@@ -831,6 +875,9 @@ class ProcesadorExcel:
                 "Observaciones": 44,
                 "Date": 15,
                 "Fecha del envío": 18,
+                "Prorrateo Disputa": 20,
+                "Prorrateo Normal": 20,
+                "Neto despues de prorrateo": 20,
                 "Fecha_pago": 15,
                 "Order Id Paypal": 20,
                 "Valoración flete": 20,

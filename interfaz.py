@@ -230,7 +230,7 @@ class PaymentApp(ctk.CTk):
         # Botón Ejecutar grande
         self.btn_ejecutar = ctk.CTkButton(
             self.idle_frame,
-            text="EJECUTAR PROCESO COMPLETO",
+            text="Iniciar reporte",
             command=self.start_workflow,
             fg_color=COLOR_PRIMARY,
             hover_color="#25A25A",
