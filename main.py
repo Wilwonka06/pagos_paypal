@@ -56,7 +56,7 @@ class Config:
     
     # Configuración de Excel
     HOJA_MAESTRO = "Soporte Formulario"
-    
+        
     # Columnas del Excel (Orden exacto basado en el archivo Maestro)
     COLUMNAS_SEGUNDA_HOJA = [
         "Date", "Currency", "Gross", "Fee", "Net",
@@ -520,13 +520,13 @@ class ProcesadorExcel:
             # 1. Identificar la hoja correcta
             nombre_hoja = Config.HOJA_MAESTRO
             try:
-                # Intentar leer primero con header=0 (fila 1), si detecta 'Unnamed', intentar con header=1 (fila 2)
-                df_maestro = pd.read_excel(archivo_maestro, sheet_name=nombre_hoja, engine='openpyxl')
+                # Leer con dtype=object para preservar tipos originales de Excel y evitar conversiones automáticas
+                df_maestro = pd.read_excel(archivo_maestro, sheet_name=nombre_hoja, engine='openpyxl', dtype=object)
                 
                 # Si las primeras columnas son 'Unnamed', es muy probable que el encabezado esté más abajo
                 if any('Unnamed' in str(col) for col in df_maestro.columns[:3]):
                     self.logger.info("Detectados encabezados 'Unnamed'. Reintentando lectura desde la fila 2...")
-                    df_maestro = pd.read_excel(archivo_maestro, sheet_name=nombre_hoja, engine='openpyxl', header=1)
+                    df_maestro = pd.read_excel(archivo_maestro, sheet_name=nombre_hoja, engine='openpyxl', header=1, dtype=object)
                 
                 # Si la primera columna sigue siendo Unnamed (columna A vacía), la eliminamos
                 if 'Unnamed: 0' in df_maestro.columns:
@@ -694,7 +694,10 @@ class ProcesadorExcel:
             columnas_fecha = ["Date", "Fecha del envío", "Fecha_pago"]
             for col in columnas_fecha:
                 if col in df_final.columns:
-                    df_final[col] = pd.to_datetime(df_final[col], errors='coerce').dt.date
+                    # Convertir a datetime y luego a string con formato YYYY-MM-DD para evitar horas en Excel
+                    df_final[col] = pd.to_datetime(df_final[col], errors='coerce').dt.strftime('%Y-%m-%d')
+                    # Reemplazar 'NaT' (resultado de errores en to_datetime) por None o vacío
+                    df_final[col] = df_final[col].replace('NaT', None)
             
             # Detectar registros de "Próximo pago"
             # Un registro es parcial si Net > 0 pero Gross y Fee están vacíos/nulos
@@ -727,12 +730,22 @@ class ProcesadorExcel:
                 if conteo_parciales > 0:
                     self.logger.info(f"Se detectaron {conteo_parciales} registros de 'Próximo pago' (parciales).")
             
-            # Asegurar que Order Id Paypal sea string para evitar notación científica
-            if "Order Id Paypal" in df_final.columns:
-                # Convertir a string, quitar decimales si existen y limpiar espacios
-                df_final["Order Id Paypal"] = df_final["Order Id Paypal"].apply(
-                    lambda x: str(int(float(x))) if pd.notna(x) and str(x).strip() != "" and str(x).lower() != "nan" else ""
-                )
+            # Asegurar que IDs se manejen como string para evitar notación científica y pérdida de precisión
+            columnas_id = ["Order Id Paypal", "Invoice Numbers", "Número guía"]
+            
+            def clean_id(x):
+                if pd.isna(x) or str(x).strip().lower() in ["", "nan"]:
+                    return ""
+                # Si es float, intentar convertir a int para quitar .0
+                if isinstance(x, float):
+                    if x.is_integer():
+                        return str(int(x))
+                    return "{:.0f}".format(x) # Evitar notación científica
+                return str(x).strip()
+
+            for col_id in columnas_id:
+                if col_id in df_final.columns:
+                    df_final[col_id] = df_final[col_id].apply(clean_id)
 
             return df_final
         
@@ -746,8 +759,8 @@ class ProcesadorExcel:
         """
         try:
             self.logger.info("Calculando valores de Comparación flete y Resultado comparación...")
-            # Leer primera hoja (Data SAP)
-            df_sap = pd.read_excel(archivo_principal, sheet_name=0)
+            # Leer primera hoja (Data SAP) con dtype=object para IDs
+            df_sap = pd.read_excel(archivo_principal, sheet_name=0, engine='openpyxl', dtype=object)
             
             # Limpiar nombres de columnas SAP
             df_sap.columns = [str(col).strip() for col in df_sap.columns]
