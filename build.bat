@@ -82,6 +82,12 @@ if not exist "%PROJECT_ROOT%main.py" (
     exit /b 1
 )
 echo [OK] main.py found
+if not exist "%PROJECT_ROOT%verificacion.py" (
+    echo [ERROR] verificacion.py not found!
+    pause
+    exit /b 1
+)
+echo [OK] verificacion.py found
 
 REM Check for optional logo.ico
 if exist "%PROJECT_ROOT%logo.ico" (

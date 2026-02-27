@@ -18,18 +18,25 @@ from verificacion import VerificadorActualizadorSoportes, ResultadoVerificacion
 
 
 # Configuración de tema y colores
-ctk.set_appearance_mode("dark")
-ctk.set_default_color_theme("green")
+ctk.set_appearance_mode("light")
+ctk.set_default_color_theme("blue")
 
-# Colores personalizados
-COLOR_PRIMARY = "#2CC985"  # Verde principal
-COLOR_SECONDARY = "#1A1A2E"  # Fondo oscuro
-COLOR_ACCENT = "#0F3460"  # Acento azul
-COLOR_TEXT = "#FFFFFF"  # Texto blanco
-COLOR_ERROR = "#FF6B6B"  # Rojo para errores
-COLOR_WARNING = "#FFE66D"  # Amarillo para advertencias
-COLOR_SUCCESS = "#4ECDC4"  # Verde azulado para éxito
-COLOR_ORANGE = "#FF9500"  # Naranja para verificador
+# Colores personalizados (Formato: (Light, Dark))
+
+COLOR_PRIMARY = ("#08129B")      # Azul principal (Claro / Oscuro)
+COLOR_SECONDARY = ("#FFFFFF")    # Fondo principal ventana (Blanco / Gris neutro oscuro para descanso visual)
+COLOR_ACCENT = ("#F0F2F5")       # Fondo de frames principales (Gris claro / Gris oscuro solicitado)
+COLOR_ACCENT_LIGHT = ("#E4E6EB") # Acento para cards/subframes (Gris suave / Azul noche profundo)
+COLOR_TEXT = ("#1C1E21")         # Texto (Casi negro / Blanco)
+COLOR_TEXT_DIM = ("#65676B")     # Texto atenuado (Gris oscuro / Gris claro)
+
+COLOR_ERROR = ("#D32F2F")        # Rojo
+COLOR_WARNING = ("#F57C00")      # Naranja/Dorado (Mantener para advertencias críticas)
+COLOR_SUCCESS = ("#388E3C")      # Verde
+COLOR_BLUE = ("#1976D2")         # Azul info
+
+# El color naranja anterior se reemplaza por el azul primario en los elementos de acción
+COLOR_ACTION = COLOR_PRIMARY
 
 
 # Estados de la aplicación
@@ -46,9 +53,21 @@ class PaymentApp(ctk.CTk):
         
         # Configuración de ventana
         self.title("💰 Automatización de Pagos PayPal")
-        self.geometry("900x650")
-        self.minsize(800, 550)
+        
+        # Obtener dimensiones de pantalla para un inicio proporcional pero grande
+        screen_width = self.winfo_screenwidth()
+        screen_height = self.winfo_screenheight()
+        
+        # Usar el 90% de la pantalla pero no más de 1200x800 como base inicial
+        width = min(1200, int(screen_width * 0.9))
+        height = min(800, int(screen_height * 0.9))
+        
+        self.geometry(f"{width}x{height}+50+50")
+        self.minsize(800, 600)
         self.resizable(True, True)
+        
+        # Forzar el estado maximizado después de que la ventana se haya inicializado un poco
+        self.after(100, lambda: self.state('zoomed'))
         
         # Configurar logging
         self.logger = configurar_logging()
@@ -57,6 +76,7 @@ class PaymentApp(ctk.CTk):
         self.current_state = STATE_IDLE
         self.operation_running = False
         self.numero_pago = 1
+        self.cancel_requested = False  # NUEVO: Bandera para cancelar proceso
         
         # NUEVO: Variables para verificación
         self.modo_verificacion = False
@@ -103,44 +123,46 @@ class PaymentApp(ctk.CTk):
     def load_initial_state(self):
         """Carga el estado inicial"""
         try:
-            gestor = GestorCarpetas(Config.BASE_PAYPAL)
-            self.numero_pago = gestor.obtener_pago_pendiente_o_siguiente()
-            if hasattr(self, 'payment_entry'):
-                self.payment_entry.delete(0, "end")
-                self.payment_entry.insert(0, str(self.numero_pago))
+            # El número de pago se generará automáticamente al ejecutar el proceso
+            # No es necesario mostrarlo en la vista principal
+            pass
         except:
             pass
     
     def create_widgets(self):
-        """Crea todos los elementos de la interfaz"""
+        """Crea todos los elementos de la interfaz con un diseño centrado y limpio"""
         
-        # ========== HEADER ==========
+        # ========== HEADER PRINCIPAL ==========
         self.header_frame = ctk.CTkFrame(
             self, 
-            fg_color=COLOR_ACCENT,
-            height=70,
+            fg_color="#FFFFFF", # Blanco
+            height=80,
             corner_radius=0
         )
         self.header_frame.pack(fill="x", side="top")
         
-        # Logo/Título
-        self.title_label = ctk.CTkLabel(
-            self.header_frame,
-            text="💰 Sistema de Automatización de Pagos PayPal",
-            font=("Roboto Medium", 20),
-            text_color=COLOR_TEXT
+        self.header_content = ctk.CTkFrame(self.header_frame, fg_color="transparent")
+        self.header_content.pack(expand=True)
+        
+        self.brand_label = ctk.CTkLabel(
+            self.header_content,
+            text="SISTEMA DE PAGOS PAYPAL",
+            font=("Roboto", 24, "bold"), # Aumentado un poco el tamaño
+            text_color=COLOR_PRIMARY
         )
-        self.title_label.pack(side="left", padx=20, pady=20)
-        
+        self.brand_label.pack(side="left", padx=15, pady=15)
+
         # ========== CONTENIDO PRINCIPAL ==========
-        self.main_frame = ctk.CTkFrame(self, fg_color="transparent")
-        self.main_frame.pack(fill="both", expand=True, padx=20, pady=20)
+        self.main_container = ctk.CTkFrame(self, fg_color="transparent")
+        self.main_container.pack(fill="both", expand=True, padx=40, pady=30)
         
-        # Contenedor del contenido dinámico
+        # Contenedor dinámico central
         self.content_frame = ctk.CTkFrame(
-            self.main_frame,
-            fg_color="#1E1E2E",
-            corner_radius=15
+            self.main_container,
+            fg_color=COLOR_ACCENT,
+            corner_radius=20,
+            border_width=1,
+            border_color=COLOR_ACCENT_LIGHT
         )
         self.content_frame.pack(fill="both", expand=True)
         
@@ -148,494 +170,548 @@ class PaymentApp(ctk.CTk):
         self.create_idle_content()
         self.create_running_content()
         self.create_completed_content()
-        
-        # NUEVO: Crear estados de verificación
         self.create_verificar_soportes_content()
         self.create_resultado_verificacion_content()
                 
         # ========== BARRA DE ESTADO ==========
         self.status_frame = ctk.CTkFrame(
             self,
-            fg_color=COLOR_ACCENT,
-            height=35,
-            corner_radius=0
+            fg_color="transparent",
+            height=30
         )
-        self.status_frame.pack(fill="x", side="bottom")
+        self.status_frame.pack(fill="x", side="bottom", padx=40, pady=(0, 20))
         
-        # Etiqueta de estado
-        self.status_label = ctk.CTkLabel(
-            self.status_frame,
-            font=("Roboto", 12),
-            text_color=COLOR_TEXT
-        )
-        self.status_label.pack(side="left", padx=15, pady=8)
-        
-        # Progress bar
         self.progress_bar = ctk.CTkProgressBar(
             self.status_frame,
-            width=200,
+            width=250,
             height=8,
             progress_color=COLOR_PRIMARY
         )
         self.progress_bar.set(0)
-        self.progress_bar.pack(side="right", padx=20, pady=12)
+        self.progress_bar.pack(side="right")
         
         # Mostrar estado inicial
         self.show_state(STATE_IDLE)
     
     def create_idle_content(self):
-        """Crea el contenido del estado IDLE (pantalla de bienvenida)"""
+        """Crea el contenido del estado IDLE con un diseño moderno y scroll"""
         self.idle_frame = ctk.CTkFrame(self.content_frame, fg_color="transparent")
         
-        # Espaciador superior
-        ctk.CTkFrame(self.idle_frame, height=30, fg_color="transparent").pack()
+        # Grid principal para centrar el scrollable
+        self.idle_frame.grid_columnconfigure(0, weight=1)
+        self.idle_frame.grid_rowconfigure(0, weight=1)
         
-        # Icono grande
-        ctk.CTkLabel(
-            self.idle_frame,
-            text="🏠",
-            font=("Roboto", 64)
-        ).pack(pady=(20, 10))
+        # Scroll container para asegurar visibilidad en cualquier tamaño
+        scroll_idle = ctk.CTkScrollableFrame(self.idle_frame, fg_color="transparent")
+        scroll_idle.grid(row=0, column=0, sticky="nsew", padx=10, pady=10)
         
-        # Título de bienvenida
-        ctk.CTkLabel(
-            self.idle_frame,
-            text="👋 Bienvenido al Sistema",
-            font=("Roboto", 24, "bold"),
-            text_color=COLOR_PRIMARY
-        ).pack(pady=(0, 10))
+        # Grid para organizar el contenido dentro del scroll
+        scroll_idle.grid_columnconfigure(0, weight=1)
+        scroll_idle.grid_columnconfigure(1, weight=1)
         
-        # Descripción del sistema
-        desc_frame = ctk.CTkFrame(self.idle_frame, fg_color="#2A2A3E", corner_radius=10)
-        desc_frame.pack(fill="x", padx=40, pady=20)
+        # LADO IZQUIERDO: Bienvenida e Información
+        info_side = ctk.CTkFrame(scroll_idle, fg_color="transparent")
+        info_side.grid(row=0, column=0, sticky="nsew", padx=30, pady=30)
         
         ctk.CTkLabel(
-            desc_frame,
-            text="Este sistema automatiza el proceso completo de pagos PayPal:",
-            font=("Roboto", 14),
+            info_side,
+            text="👋 Bienvenido,",
+            font=("Roboto", 32, "bold"),
             text_color=COLOR_TEXT
-        ).pack(anchor="w", padx=20, pady=(15, 10))
-        
-        steps_text = """
-            1. 📁 Verificar y crear carpetas necesarias
-            2. 📥 Descargar reportes desde SAP
-            3. 📄 Buscar documentos PDF asociados
-            4. 📊 Procesar archivos Excel
-            5. 📋 Actualizar el archivo maestro
-        """
-        ctk.CTkLabel(
-            desc_frame,
-            text=steps_text.strip(),
-            font=("Roboto", 13),
-            text_color="#AAAAAA",
-            justify="left"
-        ).pack(anchor="w", padx=20, pady=(0, 15))
-        
-        # Número de pago
-        payment_frame = ctk.CTkFrame(self.idle_frame, fg_color="transparent")
-        payment_frame.pack(fill="x", padx=40, pady=20)
+        ).pack(anchor="w")
         
         ctk.CTkLabel(
-            payment_frame,
-            text="📌 Número de Pago:",
-            font=("Roboto", 14),
+            info_side,
+            text="Sistema de Gestión de Pagos",
+            font=("Roboto", 16),
+            text_color=COLOR_TEXT # Cambiado de COLOR_PRIMARY para mejor contraste
+        ).pack(anchor="w", pady=(0, 30))
+        
+        # Cards de beneficios
+        def create_card(parent, title, desc, icon):
+            card = ctk.CTkFrame(parent, fg_color=COLOR_ACCENT_LIGHT, corner_radius=10)
+            card.pack(fill="x", pady=10)
+            
+            ctk.CTkLabel(card, text=icon, font=("Roboto", 24)).pack(side="left", padx=15, pady=15)
+            
+            txt_frame = ctk.CTkFrame(card, fg_color="transparent")
+            txt_frame.pack(side="left", fill="both", expand=True, pady=10)
+            
+            ctk.CTkLabel(txt_frame, text=title, font=("Roboto", 13, "bold"), text_color=COLOR_TEXT).pack(anchor="w")
+            ctk.CTkLabel(txt_frame, text=desc, font=("Roboto", 11), text_color=COLOR_TEXT_DIM).pack(anchor="w")
+
+        create_card(info_side, "Automatización SAP", "Descarga de reportes sin intervención manual.", "📥")
+        create_card(info_side, "Procesamiento Inteligente", "Cálculos y organización de datos en Excel.", "📊")
+        create_card(info_side, "Gestión Documental", "Búsqueda y validación de PDFs en OneDrive.", "📄")
+
+        # LADO DERECHO: Acciones
+        action_side = ctk.CTkFrame(scroll_idle, fg_color=COLOR_ACCENT_LIGHT, corner_radius=15)
+        action_side.grid(row=0, column=1, sticky="nsew", padx=30, pady=30)
+        
+        ctk.CTkLabel(
+            action_side,
+            text="Acciones Rápidas",
+            font=("Roboto", 18, "bold"),
             text_color=COLOR_TEXT
-        ).pack(side="left", padx=(0, 10))
+        ).pack(pady=(30, 20))
         
-        self.payment_entry = ctk.CTkEntry(
-            payment_frame,
-            placeholder_text="Ej: 1, 2, 3...",
-            width=100,
-            font=("Roboto", 14)
-        )
-        self.payment_entry.pack(side="left", padx=(0, 20))
-        
-        # NUEVO: Contenedor de botones
-        botones_frame = ctk.CTkFrame(self.idle_frame, fg_color="transparent")
-        botones_frame.pack(pady=30)
-        
-        # Botón Ejecutar Proceso Completo
+        # Botón Principal
         self.btn_ejecutar = ctk.CTkButton(
-            botones_frame,
-            text=" EJECUTAR PROCESO COMPLETO",
+            action_side,
+            text="▶️ Comenzar",
             command=self.start_workflow,
             fg_color=COLOR_PRIMARY,
-            hover_color="#25A25A",
+            hover_color=("#060D6F", "#4A52A7"),
             font=("Roboto", 14, "bold"),
-            height=45,
-            width=250
+            height=50
         )
-        self.btn_ejecutar.pack(side="left", padx=10)
+        self.btn_ejecutar.pack(fill="x", padx=30, pady=10)
         
-        # NUEVO: Botón BUSCAR Y ACTUALIZAR SOPORTES
+        ctk.CTkLabel(
+            action_side,
+            text="Inicia descarga SAP, procesa Excel y busca PDFs.",
+            font=("Roboto", 11),
+            text_color=COLOR_TEXT_DIM
+        ).pack(pady=(0, 20))
+        
+        # Botón Secundario
         self.btn_verificar = ctk.CTkButton(
-            botones_frame,
-            text="🔍 BUSCAR Y ACTUALIZAR",
+            action_side,
+            text=" Actualizar Soportes",
             command=self.show_verificar_soportes,
-            fg_color=COLOR_ORANGE,
-            hover_color="#E68A00",
+            fg_color="transparent",
+            border_color=COLOR_PRIMARY,
+            border_width=2,
+            text_color=COLOR_PRIMARY,
+            hover_color=("#E4E6EB", "#2A3357"),
             font=("Roboto", 14, "bold"),
-            height=45,
-            width=250
+            height=50
         )
-        self.btn_verificar.pack(side="left", padx=10)
+        self.btn_verificar.pack(fill="x", padx=30, pady=10)
         
-        # Espaciador inferior
-        ctk.CTkFrame(self.idle_frame, height=20, fg_color="transparent").pack()
+        ctk.CTkLabel(
+            action_side,
+            text="Solo busca y actualiza documentos faltantes.",
+            font=("Roboto", 11),
+            text_color=COLOR_TEXT_DIM
+        ).pack(pady=(0, 20))
+        
     
     def create_running_content(self):
-        """Crea el contenido del estado RUNNING (progress y logs)"""
+        """Crea el contenido del estado RUNNING con un diseño compacto y adaptativo"""
         self.running_frame = ctk.CTkFrame(self.content_frame, fg_color="transparent")
         
-        # Título
-        ctk.CTkLabel(
-            self.running_frame,
-            text="⚡ Ejecutando Proceso...",
-            font=("Roboto", 20, "bold"),
-            text_color=COLOR_PRIMARY
-        ).pack(pady=(20, 10))
+        # Grid principal para RUNNING
+        self.running_frame.grid_columnconfigure(0, weight=1)
+        self.running_frame.grid_rowconfigure(0, weight=1)
         
-        # Progress bar principal
+        # Contenedor central con scroll por si la ventana es pequeña
+        scroll_container = ctk.CTkScrollableFrame(self.running_frame, fg_color="transparent")
+        scroll_container.grid(row=0, column=0, sticky="nsew", padx=20, pady=20)
+        
+        # Título y Estado
+        header_section = ctk.CTkFrame(scroll_container, fg_color="transparent")
+        header_section.pack(fill="x", pady=(0, 20))
+        
+        self.payment_number_display = ctk.CTkLabel(
+            header_section,
+            text="Procesando Pago #---",
+            font=("Roboto", 22, "bold"),
+            text_color=COLOR_TEXT # Blanco para mejor contraste
+        )
+        self.payment_number_display.pack()
+        
+        self.current_step_label = ctk.CTkLabel(
+            header_section,
+            text="Iniciando...",
+            font=("Roboto", 13),
+            text_color=COLOR_TEXT_DIM
+        )
+        self.current_step_label.pack(pady=2)
+
+        # Barra de progreso principal
+        progress_section = ctk.CTkFrame(scroll_container, fg_color=COLOR_ACCENT_LIGHT, corner_radius=15)
+        progress_section.pack(fill="x", pady=10)
+        
         self.main_progress = ctk.CTkProgressBar(
-            self.running_frame,
-            width=500,
-            height=15,
+            progress_section,
+            width=400,
+            height=10,
             progress_color=COLOR_PRIMARY
         )
         self.main_progress.set(0)
-        self.main_progress.pack(pady=10)
+        self.main_progress.pack(padx=30, pady=(20, 5))
         
-        # Porcentaje
         self.progress_label = ctk.CTkLabel(
-            self.running_frame,
+            progress_section,
             text="0%",
             font=("Roboto", 14, "bold"),
             text_color=COLOR_TEXT
         )
-        self.progress_label.pack(pady=(0, 10))
+        self.progress_label.pack(pady=(0, 15))
+
+        # Panel de Pasos Visual (Limpio)
+        steps_panel = ctk.CTkFrame(scroll_container, fg_color="transparent")
+        steps_panel.pack(fill="x", pady=10)
         
-        # Contenedor de pasos
-        steps_container = ctk.CTkFrame(self.running_frame, fg_color="#2A2A3E", corner_radius=10)
-        steps_container.pack(fill="x", padx=30, pady=15)
-        
-        ctk.CTkLabel(
-            steps_container,
-            text="📋 Pasos del Proceso:",
-            font=("Roboto", 14, "bold"),
-            text_color=COLOR_TEXT
-        ).pack(anchor="w", padx=15, pady=(15, 10))
-        
-        # Labels de cada paso
         self.step_labels = {}
-        for i, (step_id, step_name) in enumerate(self.workflow_steps):
-            step_frame = ctk.CTkFrame(steps_container, fg_color="transparent")
-            step_frame.pack(fill="x", padx=15, pady=3)
+        steps_list_frame = ctk.CTkFrame(steps_panel, fg_color="transparent")
+        steps_list_frame.pack(expand=True)
+
+        for step_id, step_name in self.workflow_steps:
+            f = ctk.CTkFrame(steps_list_frame, fg_color="transparent")
+            f.pack(side="left", padx=10)
             
-            # Checkbox visual (simulado con label)
-            status_icon = ctk.CTkLabel(
-                step_frame,
-                text="⭕",
-                font=("Roboto", 14),
-                text_color="#666666",
-                width=30
-            )
-            status_icon.pack(side="left", padx=(0, 10))
+            icon = ctk.CTkLabel(f, text="○", font=("Roboto", 18), text_color=COLOR_TEXT_DIM)
+            icon.pack()
             
-            step_label = ctk.CTkLabel(
-                step_frame,
-                text=step_name,
-                font=("Roboto", 12),
-                text_color="#AAAAAA"
-            )
-            step_label.pack(side="left")
+            lbl = ctk.CTkLabel(f, text=step_name.replace(" ", "\n"), font=("Roboto", 9), text_color=COLOR_TEXT_DIM)
+            lbl.pack()
             
-            self.step_labels[step_id] = {
-                'icon': status_icon,
-                'label': step_label
-            }
-        
-        ctk.CTkFrame(steps_container, height=10, fg_color="transparent").pack()
-        
-        # Área de logs
-        log_frame = ctk.CTkFrame(self.running_frame, fg_color="#2A2A3E", corner_radius=10)
-        log_frame.pack(fill="both", expand=True, padx=30, pady=15)
+            self.step_labels[step_id] = {'icon': icon, 'label': lbl}
+
+        # Área de Información (En lugar de consola)
+        info_panel = ctk.CTkFrame(scroll_container, fg_color=COLOR_ACCENT_LIGHT, corner_radius=10)
+        info_panel.pack(fill="both", expand=True, pady=10)
         
         ctk.CTkLabel(
-            log_frame,
-            text="📝 Registro de Operaciones:",
-            font=("Roboto", 14, "bold"),
+            info_panel,
+            text="📋 Actividad reciente:",
+            font=("Roboto", 12, "bold"),
             text_color=COLOR_TEXT
-        ).pack(anchor="w", padx=15, pady=(15, 10))
+        ).pack(anchor="w", padx=20, pady=(10, 2))
         
-        # Textbox para logs
-        self.log_text = ctk.CTkTextbox(
-            log_frame,
-            fg_color="#1A1A2E",
-            text_color=COLOR_TEXT,
-            font=("Consolas", 11)
+        self.last_log_label = ctk.CTkLabel(
+            info_panel,
+            text="Preparando el entorno...",
+            font=("Roboto", 11),
+            text_color=COLOR_SUCCESS,
+            justify="left"
         )
-        self.log_text.pack(fill="both", expand=True, padx=15, pady=(0, 15))
-        self.log_text.insert("1.0", "📋 Esperando inicio del proceso...\n")
-        self.log_text.configure(state="disabled")
+        self.last_log_label.pack(anchor="w", padx=20, pady=(0, 15))
+        
+        # Mantenemos el log_text oculto
+        self.log_text = ctk.CTkTextbox(self.running_frame, width=1, height=1) 
+        self.log_text.grid(row=1, column=1)
+        self.log_text.lower()
+
+        # Botón Cancelar (Asegurando visibilidad)
+        self.btn_cancelar = ctk.CTkButton(
+            scroll_container,
+            text="✕ Cancelar Operación",
+            command=self.cancel_process,
+            fg_color="transparent",
+            border_color=COLOR_ERROR,
+            border_width=1,
+            text_color=COLOR_ERROR,
+            hover_color=("#FFEBEE", "#331111"),
+            height=35,
+            width=200
+        )
+        self.btn_cancelar.pack(pady=(10, 0))
     
     def create_completed_content(self):
-        """Crea el contenido del estado COMPLETED"""
+        """Crea el contenido del estado COMPLETED con un diseño visualmente atractivo y scroll"""
         self.completed_frame = ctk.CTkFrame(self.content_frame, fg_color="transparent")
         
-        # Icono de éxito
-        ctk.CTkLabel(
-            self.completed_frame,
-            text="✅",
-            font=("Roboto", 64)
-        ).pack(pady=(30, 10))
+        # Grid para centrar el scrollable
+        self.completed_frame.grid_columnconfigure(0, weight=1)
+        self.completed_frame.grid_rowconfigure(0, weight=1)
         
-        # Título
+        # Scroll container
+        scroll_completed = ctk.CTkScrollableFrame(self.completed_frame, fg_color="transparent")
+        scroll_completed.grid(row=0, column=0, sticky="nsew", padx=10, pady=10)
+        
+        container = ctk.CTkFrame(scroll_completed, fg_color="transparent")
+        container.pack(expand=True, fill="both", padx=50, pady=40)
+        
+        # Icono de Éxito Grande
         ctk.CTkLabel(
-            self.completed_frame,
-            text="¡Proceso Completado!",
+            container,
+            text="✨",
+            font=("Roboto", 64)
+        ).pack(pady=(0, 10))
+        
+        ctk.CTkLabel(
+            container,
+            text="¡Proceso Finalizado con Éxito!",
             font=("Roboto", 24, "bold"),
             text_color=COLOR_SUCCESS
-        ).pack(pady=10)
-        
-        # Resumen
-        summary_frame = ctk.CTkFrame(self.completed_frame, fg_color="#2A2A3E", corner_radius=10)
-        summary_frame.pack(fill="both", expand=True, padx=40, pady=20)
+        ).pack()
         
         ctk.CTkLabel(
-            summary_frame,
-            text="📋 Resumen:",
-            font=("Roboto", 14, "bold"),
+            container,
+            text="El reporte ha sido procesado y el archivo maestro actualizado.",
+            font=("Roboto", 13),
+            text_color=COLOR_TEXT_DIM
+        ).pack(pady=(5, 30))
+        
+        # Panel de Resumen
+        summary_panel = ctk.CTkFrame(container, fg_color=COLOR_ACCENT_LIGHT, corner_radius=15)
+        summary_panel.pack(fill="both", expand=True, pady=10)
+        
+        ctk.CTkLabel(
+            summary_panel,
+            text="� RESUMEN DE LA OPERACIÓN",
+            font=("Roboto", 12, "bold"),
             text_color=COLOR_TEXT
-        ).pack(anchor="w", padx=15, pady=(15, 10))
+        ).pack(anchor="w", padx=25, pady=(20, 10))
         
         self.summary_text = ctk.CTkTextbox(
-            summary_frame,
-            fg_color="#1A1A2E",
+            summary_panel,
+            fg_color=COLOR_ACCENT,
             text_color=COLOR_TEXT,
-            font=("Consolas", 11)
+            font=("Consolas", 11),
+            border_width=1,
+            border_color=COLOR_ACCENT_LIGHT,
+            corner_radius=10
         )
-        self.summary_text.pack(fill="both", expand=True, padx=15, pady=(0, 15))
+        self.summary_text.pack(fill="both", expand=True, padx=20, pady=(0, 20))
         self.summary_text.configure(state="disabled")
         
-        # Botones
-        button_frame = ctk.CTkFrame(self.completed_frame, fg_color="transparent")
-        button_frame.pack(fill="x", padx=40, pady=20)
+        # Botones de Acción (Lado a Lado - Flex)
+        btns_container = ctk.CTkFrame(container, fg_color="transparent")
+        btns_container.pack(fill="x", pady=(20, 0))
         
         ctk.CTkButton(
-            button_frame,
-            text="Procesar Siguiente Pago",
+            btns_container,
+            text="🔄 Procesar Siguiente",
             command=self.continue_workflow,
             fg_color=COLOR_PRIMARY,
-            hover_color="#25A25A",
-            font=("Roboto", 12, "bold"),
-            height=40
-        ).pack(side="left", padx=5, fill="x", expand=True)
+            hover_color="#169c46",
+            font=("Roboto", 14, "bold"),
+            height=45
+        ).pack(side="left", fill="x", expand=True, padx=(0, 10))
         
         ctk.CTkButton(
-            button_frame,
-            text="Salir",
-            command=self.on_close,
-            fg_color=COLOR_ERROR,
-            hover_color="#E55353",
-            font=("Roboto", 12, "bold"),
-            height=40
-        ).pack(side="left", padx=5, fill="x", expand=True)
+            btns_container,
+            text="🏠 Panel Principal",
+            command=self.back_to_idle,
+            fg_color="transparent",
+            border_color=COLOR_ACCENT_LIGHT,
+            border_width=1,
+            text_color=COLOR_TEXT,
+            hover_color=COLOR_ACCENT_LIGHT,
+            font=("Roboto", 14, "bold"),
+            height=45
+        ).pack(side="left", fill="x", expand=True, padx=(10, 0))
     
     # ════════════════════════════════════════════════════════════════════════
     # NUEVO: MÉTODOS PARA VERIFICACIÓN DE SOPORTES
     # ════════════════════════════════════════════════════════════════════════
     
     def create_verificar_soportes_content(self):
-        """NUEVO: Crea interfaz para búsqueda y actualización de soportes"""
+        """Rediseño de la interfaz de actualización de soportes con scroll"""
         self.verificar_frame = ctk.CTkFrame(self.content_frame, fg_color="transparent")
         
-        # Título
-        titulo = ctk.CTkLabel(
-            self.verificar_frame,
-            text="🔍 BUSCAR Y ACTUALIZAR SOPORTES",
-            font=("Roboto", 20, "bold"),
-            text_color=COLOR_ORANGE
-        )
-        titulo.pack(pady=(20, 10))
+        # Grid para organizar el scrollable
+        self.verificar_frame.grid_columnconfigure(0, weight=1)
+        self.verificar_frame.grid_rowconfigure(0, weight=1)
         
-        # Descripción
-        desc = ctk.CTkLabel(
-            self.verificar_frame,
-            text="Busca documentos faltantes en OneDrive, cópialos a Soporte y actualiza Excel",
-            font=("Roboto", 12),
-            text_color="#AAAAAA"
-        )
-        desc.pack(pady=(0, 20))
+        # Scroll container
+        scroll_verif = ctk.CTkScrollableFrame(self.verificar_frame, fg_color="transparent")
+        scroll_verif.grid(row=0, column=0, sticky="nsew", padx=10, pady=10)
         
-        # Frame de selección
-        selector_frame = ctk.CTkFrame(self.verificar_frame, fg_color="#2A2A3E", corner_radius=10)
-        selector_frame.pack(fill="x", padx=40, pady=10)
+        # Grid para organizar dentro del scroll
+        scroll_verif.grid_columnconfigure(0, weight=1)
+        scroll_verif.grid_columnconfigure(1, weight=1)
+        
+        # LADO IZQUIERDO: Configuración y Selección
+        config_side = ctk.CTkFrame(scroll_verif, fg_color="transparent")
+        config_side.grid(row=0, column=0, sticky="nsew", padx=30, pady=30)
         
         ctk.CTkLabel(
-            selector_frame,
-            text="Número de Pago:",
-            font=("Roboto", 12),
+            config_side,
+            text=" Actualizar Soportes",
+            font=("Roboto", 24, "bold"),
+            text_color=COLOR_TEXT # Cambiado de COLOR_PRIMARY para mejor contraste
+        ).pack(anchor="w")
+        
+        ctk.CTkLabel(
+            config_side,
+            text="Busca PDFs faltantes y actualiza el Excel.",
+            font=("Roboto", 13),
+            text_color=COLOR_TEXT_DIM
+        ).pack(anchor="w", pady=(0, 30))
+        
+        # Selector de Pago con estilo mejorado
+        selector_card = ctk.CTkFrame(config_side, fg_color=COLOR_ACCENT_LIGHT, corner_radius=15)
+        selector_card.pack(fill="x", pady=10)
+        
+        ctk.CTkLabel(
+            selector_card,
+            text="Selecciona el número de pago:",
+            font=("Roboto", 12, "bold"),
             text_color=COLOR_TEXT
         ).pack(anchor="w", padx=20, pady=(15, 5))
         
-        # Obtener pagos disponibles
-        todas_carpetas = [d for d in Config.BASE_PAYPAL.iterdir() if d.is_dir() and d.name.startswith("Pago #")]
+        # Obtener pagos disponibles de forma segura
         numeros_disponibles = []
-        for carpeta in todas_carpetas:
-            try:
-                num = int(carpeta.name.replace("Pago #", ""))
-                numeros_disponibles.append(num)
-            except ValueError:
-                continue
-        
-        numeros_disponibles.sort(reverse=True)
+        try:
+            todas_carpetas = [d for d in Config.BASE_PAYPAL.iterdir() if d.is_dir() and d.name.startswith("Pago #")]
+            for carpeta in todas_carpetas:
+                try:
+                    num = int(carpeta.name.replace("Pago #", ""))
+                    numeros_disponibles.append(num)
+                except: continue
+            numeros_disponibles.sort(reverse=True)
+        except: pass
         
         if numeros_disponibles:
             self.pago_select = ctk.CTkComboBox(
-                selector_frame,
+                selector_card,
                 values=[str(n) for n in numeros_disponibles],
                 state="readonly",
-                font=("Roboto", 12)
+                height=40,
+                fg_color=COLOR_ACCENT,
+                border_color=COLOR_ACCENT_LIGHT,
+                button_color=COLOR_PRIMARY,
+                button_hover_color=("#060D6F", "#4A52A7")
             )
             self.pago_select.set(str(numeros_disponibles[0]))
-            self.pago_select.pack(fill="x", padx=20, pady=(5, 15))
+            self.pago_select.pack(fill="x", padx=20, pady=(5, 20))
         else:
-            ctk.CTkLabel(
-                selector_frame,
-                text="❌ No hay pagos disponibles",
-                font=("Roboto", 12),
-                text_color=COLOR_ERROR
-            ).pack(padx=20, pady=20)
-            return
+            ctk.CTkLabel(selector_card, text="No se encontraron pagos", text_color=COLOR_ERROR).pack(pady=20)
+
+        # Botones de acción lado a lado
+        btn_action_frame = ctk.CTkFrame(config_side, fg_color="transparent")
+        btn_action_frame.pack(fill="x", pady=(20, 10))
         
-        # Botones de acción
-        botones_frame = ctk.CTkFrame(self.verificar_frame, fg_color="transparent")
-        botones_frame.pack(fill="x", padx=40, pady=20)
-        
-        btn_procesar = ctk.CTkButton(
-            botones_frame,
-            text="BUSCAR Y ACTUALIZAR",
+        self.btn_verificar_action = ctk.CTkButton(
+            btn_action_frame,
+            text="▶️ Iniciar",
             command=self.start_verificacion,
-            fg_color=COLOR_ORANGE,
-            hover_color="#E68A00",
+            fg_color=COLOR_PRIMARY,
+            hover_color=("#060D6F", "#4A52A7"),
             font=("Roboto", 14, "bold"),
-            height=40
+            height=45
         )
-        btn_procesar.pack(side="left", padx=5, fill="x", expand=True)
+        self.btn_verificar_action.pack(side="left", fill="x", expand=True, padx=(0, 5))
         
-        btn_volver = ctk.CTkButton(
-            botones_frame,
-            text="VOLVER",
+        btn_back = ctk.CTkButton(
+            btn_action_frame,
+            text="↩️ Volver",
             command=self.back_to_idle,
-            fg_color="#666666",
-            hover_color="#777777",
-            font=("Roboto", 14, "bold"),
-            height=40
+            fg_color="transparent",
+            border_color=COLOR_ACCENT_LIGHT,
+            border_width=1,
+            text_color=COLOR_TEXT_DIM,
+            hover_color=COLOR_ACCENT_LIGHT,
+            height=45
         )
-        btn_volver.pack(side="left", padx=5, fill="x", expand=True)
-        
-        # Área de información
-        info_frame = ctk.CTkFrame(self.verificar_frame, fg_color="#2A2A3E", corner_radius=10)
-        info_frame.pack(fill="both", expand=True, padx=40, pady=(0, 20))
+        btn_back.pack(side="left", fill="x", expand=True, padx=(5, 0))
+
+        # LADO DERECHO: Resumen de Proceso
+        info_side = ctk.CTkFrame(scroll_verif, fg_color=COLOR_ACCENT_LIGHT, corner_radius=15)
+        info_side.grid(row=0, column=1, sticky="nsew", padx=30, pady=30)
         
         ctk.CTkLabel(
-            info_frame,
-            text="ℹ️ PROCESO AUTOMÁTICO:",
-            font=("Roboto", 12, "bold"),
+            info_side,
+            text="¿Qué hará el sistema?",
+            font=("Roboto", 16, "bold"),
             text_color=COLOR_TEXT
-        ).pack(anchor="w", padx=15, pady=(15, 10))
+        ).pack(pady=(25, 15))
         
-        info_text = ctk.CTkTextbox(
-            info_frame,
-            fg_color="#1A1A2E",
-            text_color="#AAAAAA",
-            font=("Consolas", 10),
-            height=120
-        )
-        info_text.pack(fill="both", expand=True, padx=15, pady=(0, 15))
+        # Lista de pasos con iconos
+        steps_info = [
+            ("📁", "Escaneo de carpetas en OneDrive"),
+            ("📥", "Copia automática de archivos a Soporte"),
+            ("📝", "Análisis de observaciones actuales"),
+            ("✅", "Actualización automática de 'Soportes OK'"),
+            ("📊", "Generación de reporte detallado")
+        ]
         
-        info_text.insert("1.0", 
-            "1️⃣ BUSCA documentos en OneDrive\n\n"
-            "2️⃣ COPIA documentos a Pago #X/Soporte/\n\n"
-            "3️⃣ ACTUALIZA observaciones en Excel\n"
-            "   • Detecta qué documentos llegaron\n"
-            "   • Cambia observaciones a 'Soportes OK'\n"
-            "   • Mantiene pendientes si aún faltan\n\n"
-            "4️⃣ MUESTRA reporte con cambios"
-        )
-        info_text.configure(state="disabled")
+        for icon, text in steps_info:
+            step_f = ctk.CTkFrame(info_side, fg_color="transparent")
+            step_f.pack(fill="x", padx=25, pady=8)
+            ctk.CTkLabel(step_f, text=icon, font=("Roboto", 18)).pack(side="left", padx=(0, 10))
+            ctk.CTkLabel(step_f, text=text, font=("Roboto", 11), text_color=COLOR_TEXT).pack(side="left")
+
     
     def create_resultado_verificacion_content(self):
-        """NUEVO: Crea interfaz para mostrar resultados de verificación"""
+        """Crea la interfaz de resultados de verificación con diseño moderno y scroll"""
         self.resultado_frame = ctk.CTkFrame(self.content_frame, fg_color="transparent")
         
-        # Título resultado
+        # Grid para centrar el scrollable
+        self.resultado_frame.grid_columnconfigure(0, weight=1)
+        self.resultado_frame.grid_rowconfigure(0, weight=1)
+        
+        # Scroll container
+        scroll_res_verif = ctk.CTkScrollableFrame(self.resultado_frame, fg_color="transparent")
+        scroll_res_verif.grid(row=0, column=0, sticky="nsew", padx=10, pady=10)
+        
+        container = ctk.CTkFrame(scroll_res_verif, fg_color="transparent")
+        container.pack(expand=True, fill="both", padx=50, pady=40)
+        
+        # Header de Resultados
+        header_section = ctk.CTkFrame(container, fg_color="transparent")
+        header_section.pack(fill="x", pady=(0, 20))
+        
         self.resultado_titulo = ctk.CTkLabel(
-            self.resultado_frame,
-            text="",
-            font=("Roboto", 18, "bold"),
+            header_section,
+            text="✅ Verificación Finalizada",
+            font=("Roboto", 24, "bold"),
             text_color=COLOR_PRIMARY
         )
-        self.resultado_titulo.pack(pady=(20, 10))
-        
-        # Estadísticas CON CAMBIOS
-        stats_frame = ctk.CTkFrame(self.resultado_frame, fg_color="#2A2A3E", corner_radius=10)
-        stats_frame.pack(fill="x", padx=40, pady=10)
+        self.resultado_titulo.pack()
         
         self.resultado_stats = ctk.CTkLabel(
-            stats_frame,
-            text="",
-            font=("Roboto", 11),
-            text_color="#AAAAAA",
-            justify="left"
+            header_section,
+            text="Se han actualizado las observaciones en el archivo Excel.",
+            font=("Roboto", 13),
+            text_color=COLOR_TEXT_DIM
         )
-        self.resultado_stats.pack(anchor="w", padx=15, pady=15)
+        self.resultado_stats.pack(pady=5)
         
-        # Detalles (ahora incluye cambios)
-        detalles_frame = ctk.CTkFrame(self.resultado_frame, fg_color="#2A2A3E", corner_radius=10)
-        detalles_frame.pack(fill="both", expand=True, padx=40, pady=10)
+        # Panel de Detalles
+        details_panel = ctk.CTkFrame(container, fg_color=COLOR_ACCENT_LIGHT, corner_radius=15)
+        details_panel.pack(fill="both", expand=True, pady=10)
         
         ctk.CTkLabel(
-            detalles_frame,
-            text="📋 CAMBIOS Y DETALLES:",
+            details_panel,
+            text="📋 DETALLES DE LOS CAMBIOS",
             font=("Roboto", 12, "bold"),
             text_color=COLOR_TEXT
-        ).pack(anchor="w", padx=15, pady=(15, 10))
+        ).pack(anchor="w", padx=25, pady=(20, 10))
         
         self.resultado_detalles = ctk.CTkTextbox(
-            detalles_frame,
-            fg_color="#1A1A2E",
+            details_panel,
+            fg_color=COLOR_ACCENT,
             text_color=COLOR_TEXT,
-            font=("Consolas", 10)
+            font=("Consolas", 11),
+            border_width=1,
+            border_color=COLOR_ACCENT_LIGHT,
+            corner_radius=10
         )
-        self.resultado_detalles.pack(fill="both", expand=True, padx=15, pady=(0, 15))
+        self.resultado_detalles.pack(fill="both", expand=True, padx=20, pady=(0, 20))
         self.resultado_detalles.configure(state="disabled")
         
-        # Botones finales
-        botones_frame = ctk.CTkFrame(self.resultado_frame, fg_color="transparent")
-        botones_frame.pack(fill="x", padx=40, pady=20)
+        # Botones de Acción (Lado a Lado - Flex)
+        btns_container = ctk.CTkFrame(container, fg_color="transparent")
+        btns_container.pack(fill="x", pady=(20, 0))
         
-        btn_otra = ctk.CTkButton(
-            botones_frame,
-            text="VERIFICAR OTRO PAGO",
+        ctk.CTkButton(
+            btns_container,
+            text="🔍 Verificar Otro Pago",
             command=self.show_verificar_soportes,
-            fg_color=COLOR_ORANGE,
-            hover_color="#E68A00",
-            font=("Roboto", 12, "bold"),
-            height=40
-        )
-        btn_otra.pack(side="left", padx=5, fill="x", expand=True)
-        
-        btn_inicio = ctk.CTkButton(
-            botones_frame,
-            text="VOLVER AL INICIO",
-            command=self.back_to_idle,
             fg_color=COLOR_PRIMARY,
-            hover_color="#25A25A",
-            font=("Roboto", 12, "bold"),
-            height=40
-        )
-        btn_inicio.pack(side="left", padx=5, fill="x", expand=True)
+            hover_color=("#060D6F", "#4A52A7"),
+            font=("Roboto", 14, "bold"),
+            height=45
+        ).pack(side="left", fill="x", expand=True, padx=(0, 10))
+        
+        ctk.CTkButton(
+            btns_container,
+            text="🏠 Panel Principal",
+            command=self.back_to_idle,
+            fg_color="transparent",
+            border_color=COLOR_ACCENT_LIGHT,
+            border_width=1,
+            text_color=COLOR_TEXT,
+            hover_color=COLOR_ACCENT_LIGHT,
+            font=("Roboto", 14, "bold"),
+            height=45
+        ).pack(side="left", fill="x", expand=True, padx=(10, 0))
     
     def show_verificar_soportes(self):
         """NUEVO: Muestra la interfaz para verificar soportes"""
@@ -661,7 +737,7 @@ class PaymentApp(ctk.CTk):
     def _run_verificacion(self):
         """NUEVO: Ejecuta la verificación Y actualización (en hilo separado)"""
         try:
-            self.log_message("🔍 Iniciando búsqueda y actualización de soportes...")
+            self.log_message(" Iniciando búsqueda y actualización de soportes...")
             
             # Crear verificador/actualizador
             verificador = VerificadorActualizadorSoportes(Config.RUTAS_PDF)
@@ -670,10 +746,19 @@ class PaymentApp(ctk.CTk):
             # 1. Busca documentos en OneDrive
             # 2. Copia a carpeta Soporte
             # 3. Actualiza observaciones en Excel
+            
+            # Verificar cancelación antes de iniciar
+            if self.check_cancel_and_continue():
+                return
+            
             resultado = verificador.procesar_pago_completo(
                 self.pago_verificando, 
                 Config.BASE_PAYPAL
             )
+            
+            # Verificar cancelación después de proceso
+            if self.check_cancel_and_continue():
+                return
             
             self.resultados_verificacion = [resultado]
             
@@ -681,7 +766,7 @@ class PaymentApp(ctk.CTk):
             self.after(0, self._mostrar_resultado_verificacion, resultado)
             
         except Exception as e:
-            self.log_message(f"❌ Error durante verificación: {e}")
+            self.log_message(f" Error durante verificación: {e}")
             self.logger.error(f"Error en verificación: {e}", exc_info=True)
         finally:
             self.operation_running = False
@@ -720,7 +805,7 @@ class PaymentApp(ctk.CTk):
             for archivo in resultado.archivos_copiados:
                 self.resultado_detalles.insert(
                     "end",
-                    f"✅ {archivo['nombre']}\n"
+                    f" {archivo['nombre']}\n"
                 )
         
         # Mostrar cambios en observaciones
@@ -732,7 +817,7 @@ class PaymentApp(ctk.CTk):
             )
             for cambio in resultado.cambios_realizados:
                 texto = (
-                    f"\n📌 Fila {cambio['fila']} (Invoice: {cambio['invoice']}):\n"
+                    f"\n Fila {cambio['fila']} (Invoice: {cambio['invoice']}):\n"
                     f"  ANTES: {cambio['observacion_anterior']}\n"
                     f"  DESPUÉS: {cambio['observacion_nueva']}\n"
                 )
@@ -794,7 +879,10 @@ class PaymentApp(ctk.CTk):
             if not hasattr(self, 'running_frame'):
                 self.create_running_content()
             self.running_frame.pack(fill="both", expand=True)
-            self.log_message("⏳ Buscando y actualizando soportes...")
+            # Actualizar título para verificación
+            if hasattr(self, 'payment_number_display'):
+                self.payment_number_display.configure(text=f"#{self.pago_verificando}")
+            self.log_message("Buscando y actualizando soportes...")
         
         elif state == "resultado_verificacion":
             if not hasattr(self, 'resultado_frame'):
@@ -806,31 +894,60 @@ class PaymentApp(ctk.CTk):
     def start_workflow(self):
         """Inicia el workflow completo"""
         try:
-            self.numero_pago = int(self.payment_entry.get())
+            # Resetear flag de cancelación
+            self.cancel_requested = False
+            
+            # Obtener el siguiente número de pago automáticamente
+            gestor = GestorCarpetas(Config.BASE_PAYPAL)
+            self.numero_pago = gestor.obtener_pago_pendiente_o_siguiente()
+            
+            # Actualizar la visualización del número de pago en la vista de ejecución
+            if hasattr(self, 'payment_number_display'):
+                self.payment_number_display.configure(text=f"#{self.numero_pago}")
+            
             self.operation_running = True
             self.show_state(STATE_RUNNING)
-            self.update_status("⚡ Ejecutando proceso...", 0)
+            
+            # Resetear UI para un nuevo inicio
+            if hasattr(self, 'main_progress'):
+                self.main_progress.set(0)
+            if hasattr(self, 'progress_label'):
+                self.progress_label.configure(text="0%")
+            if hasattr(self, 'btn_cancelar'):
+                self.btn_cancelar.configure(text="✕ Cancelar Operación", state="normal")
+            
+            # Limpiar botones extras de cancelación previa
+            if hasattr(self, 'running_frame'):
+                for widget in self.running_frame.winfo_children():
+                    if hasattr(widget, 'name_id') and widget.name_id == 'volver_cancel_frame':
+                        widget.destroy()
+            
+            # Resetear iconos de pasos
+            for step_id, _ in self.workflow_steps:
+                self.update_step_icon(step_id, "○", COLOR_TEXT_DIM)
+            
+            self.update_status("Ejecutando proceso...", 0)
             
             # Ejecutar en hilo
             thread = threading.Thread(target=self._execute_workflow, daemon=True)
             thread.start()
         
-        except ValueError:
-            messagebox.showerror("Error", "Por favor ingrese un número de pago válido")
+        except Exception as e:
+            messagebox.showerror("Error", f"Error al iniciar el proceso: {e}")
             self.operation_running = False
     
     def _execute_workflow(self):
-        """Ejecuta el workflow completo en hilo separado"""
+        """Ejecuta el workflow completo en hilo separado controlando la cancelación"""
         try:
-            self.run_step("step1", self._verify_folders)
-            self.run_step("step2", self._download_from_sap)
-            self.run_step("step3", self._process_excel)
-            self.run_step("step4", self._search_pdfs)
-            self.run_step("step5", self._update_master)
+            if not self.run_step("step1", self._verify_folders): return
+            if not self.run_step("step2", self._download_from_sap): return
+            if not self.run_step("step3", self._process_excel): return
+            if not self.run_step("step4", self._search_pdfs): return
+            if not self.run_step("step5", self._update_master): return
             
             self._on_workflow_completed()
         except Exception as e:
-            self.log_message(f"❌ Error en workflow: {e}")
+            self.log_message(f" Error en workflow: {e}")
             self.logger.error(f"Error workflow: {e}", exc_info=True)
         finally:
             self.operation_running = False
@@ -845,7 +962,11 @@ class PaymentApp(ctk.CTk):
         self.after(0, _update)
     
     def run_step(self, step_id, step_function):
-        """Ejecuta un paso del workflow"""
+        """Ejecuta un paso del workflow de forma segura y verificando cancelación"""
+        # 1. Verificar si se solicitó cancelación ANTES del paso
+        if self.check_cancel_and_continue():
+            return False
+        
         self.update_step_icon(step_id, "🔄", "#3498DB")
         
         step_index = [s[0] for s in self.workflow_steps].index(step_id)
@@ -853,33 +974,132 @@ class PaymentApp(ctk.CTk):
         self.after(0, lambda p=progress: self.main_progress.set(p))
         self.after(0, lambda p=progress: self.progress_label.configure(text=f"{int(p * 100)}%"))
         
-        step_function()
+        # 2. Ejecutar el paso
+        try:
+            step_function()
+        except Exception as e:
+            self.log_message(f"❌ Error en {step_id}: {e}")
+            raise e
+        
+        # 3. Verificar cancelación DESPUÉS del paso
+        if self.check_cancel_and_continue():
+            return False
         
         progress_final = (step_index + 1) / len(self.workflow_steps)
-        self.update_step_icon(step_id, "✅", COLOR_PRIMARY)
+        self.update_step_icon(step_id, "✓", COLOR_SUCCESS)
         self.after(0, lambda p=progress_final: self.main_progress.set(p))
         self.after(0, lambda p=progress_final: self.progress_label.configure(text=f"{int(p * 100)}%"))
+        return True
     
     def update_step_icon(self, step_id, icon, color):
-        """Actualiza el icono de un paso"""
+        """Actualiza el icono y estilo de un paso en el timeline"""
         def _update():
+            # Cambiar icono y color
             self.step_labels[step_id]['icon'].configure(text=icon, text_color=color)
-            if icon == "✅":
-                self.step_labels[step_id]['label'].configure(text_color=COLOR_SUCCESS)
-            elif icon == "🔄":
-                self.step_labels[step_id]['label'].configure(text_color=COLOR_PRIMARY)
+            
+            # Cambiar estilo del texto
+            if icon == "✓": # Éxito
+                self.step_labels[step_id]['label'].configure(text_color=COLOR_SUCCESS, font=("Roboto", 12, "bold"))
+                self.step_labels[step_id]['icon'].configure(text="✓")
+            elif icon == "🔄": # En proceso
+                self.step_labels[step_id]['label'].configure(text_color=COLOR_PRIMARY, font=("Roboto", 12, "bold"))
+            else: # Pendiente u otro
+                self.step_labels[step_id]['label'].configure(text_color=COLOR_TEXT_DIM, font=("Roboto", 12))
+                
         self.after(0, _update)
     
     def log_message(self, message):
-        """Agrega un mensaje al log"""
+        """Agrega un mensaje al log y actualiza el label de actividad"""
         def _log():
             timestamp = datetime.now().strftime("%H:%M:%S")
             full_message = f"[{timestamp}] {message}\n"
+            
+            # Actualizar el label de actividad (limpio)
+            if hasattr(self, 'last_log_label'):
+                self.last_log_label.configure(text=f"• {message}")
+            
+            # Actualizar el label del paso actual si corresponde
+            if hasattr(self, 'current_step_label'):
+                self.current_step_label.configure(text=message)
+            
+            # Mantener compatibilidad con el log_text original
             self.log_text.configure(state="normal")
             self.log_text.insert("end", full_message)
             self.log_text.see("end")
             self.log_text.configure(state="disabled")
         self.after(0, _log)
+    
+    def cancel_process(self):
+        """NUEVO: Cancela el proceso en ejecución"""
+        if messagebox.askyesno("Confirmar Cancelación", "¿Está seguro de que desea cancelar el proceso en ejecución?"):
+            self.cancel_requested = True
+            self.log_message("⚠️ Cancelación solicitada por el usuario...")
+            self.btn_cancelar.configure(state="disabled", text="⏳ CANCELANDO...")
+    
+    def check_cancel_and_continue(self):
+        """NUEVO: Verifica si se solicitó cancelación"""
+        if self.cancel_requested:
+            self.log_message(" Proceso cancelado por el usuario")
+            self.operation_running = False
+            self.cancel_requested = False
+            # Mostrar vista de ejecución con estado cancelado
+            self._show_cancelled_state()
+            return True
+        return False
+    
+    def _show_cancelled_state(self):
+        """Muestra el estado de proceso cancelado con una opción clara para volver"""
+        def _update():
+            if hasattr(self, 'current_step_label'):
+                self.current_step_label.configure(text="OPERACIÓN CANCELADA POR EL USUARIO", text_color=COLOR_ERROR)
+            
+            if hasattr(self, 'main_progress'):
+                self.main_progress.set(0)
+            
+            if hasattr(self, 'progress_label'):
+                self.progress_label.configure(text="CANCELADO")
+            
+            if hasattr(self, 'btn_cancelar'):
+                self.btn_cancelar.configure(state="normal", text="✕ PROCESO DETENIDO", border_color=COLOR_ERROR)
+            
+            # Asegurar que el botón de volver sea muy visible
+            if hasattr(self, 'running_frame'):
+                # Eliminar si ya existe para evitar duplicados
+                for widget in self.running_frame.winfo_children():
+                    if hasattr(widget, 'name_id') and widget.name_id == 'volver_cancel_frame':
+                        widget.destroy()
+                
+                # Buscar el scroll_container para insertar dentro
+                target_container = None
+                for widget in self.running_frame.winfo_children():
+                    if isinstance(widget, ctk.CTkScrollableFrame):
+                        target_container = widget
+                        break
+                
+                if not target_container:
+                    target_container = self.running_frame
+
+                volver_frame = ctk.CTkFrame(target_container, fg_color="transparent")
+                volver_frame.name_id = 'volver_cancel_frame'
+                volver_frame.pack(fill="x", pady=20)
+                
+                btn_volver = ctk.CTkButton(
+                    volver_frame,
+                    text="↩️ VOLVER AL PANEL PRINCIPAL",
+                    command=self.back_to_idle_from_cancelled,
+                    fg_color=COLOR_PRIMARY,
+                    hover_color="#169c46",
+                    font=("Roboto", 14, "bold"),
+                    height=50
+                )
+                btn_volver.pack(expand=True)
+        self.after(0, _update)
+    
+    def back_to_idle_from_cancelled(self):
+        """NUEVO: Vuelve al estado idle desde proceso cancelado"""
+        self.cancel_requested = False
+        self.operation_running = False
+        self.back_to_idle()
     
     def _verify_folders(self):
         """Paso 1: Verificar carpetas"""
@@ -887,9 +1107,9 @@ class PaymentApp(ctk.CTk):
         try:
             gestor = GestorCarpetas(Config.BASE_PAYPAL)
             carpetas = [d for d in Config.BASE_PAYPAL.iterdir() if d.is_dir() and d.name.startswith("Pago #")]
-            self.log_message(f"✅ Carpetas verificadas: {len(carpetas)} carpetas existentes")
+            self.log_message(f" Carpetas verificadas: {len(carpetas)} carpetas existentes")
         except Exception as e:
-            self.log_message(f"❌ Error verificando carpetas: {e}")
+            self.log_message(f" Error verificando carpetas: {e}")
     
     def _download_from_sap(self):
         """Paso 2: Descargar de SAP"""
@@ -898,11 +1118,11 @@ class PaymentApp(ctk.CTk):
             descargador = DescargadorSAP()
             archivo = descargador.descargar_reporte_sap(self.numero_pago)
             if archivo:
-                self.log_message(f"✅ Archivo descargado: {archivo.name}")
+                self.log_message(f" Archivo descargado: {archivo.name}")
             else:
                 self.log_message("⚠️ No se encontró archivo. Busque manualmente en Descargas.")
         except Exception as e:
-            self.log_message(f"❌ Error en descarga SAP: {e}")
+            self.log_message(f" Error en descarga SAP: {e}")
     
     def _search_pdfs(self):
         """Paso 4: Buscar PDFs"""
@@ -915,11 +1135,11 @@ class PaymentApp(ctk.CTk):
                 procesador = ProcesadorExcel()
                 procesador.guardar_excel_con_dos_hojas(self.archivo_movido, self.df_segunda)
                 
-                self.log_message(f"✅ PDFs procesados y Excel final actualizado.")
+                self.log_message(f" PDFs procesados y Excel final actualizado.")
             else:
                 self.log_message("⚠️ Saltando búsqueda de PDFs (no hay datos de Excel)")
         except Exception as e:
-            self.log_message(f"❌ Error buscando PDFs: {e}")
+            self.log_message(f" Error buscando PDFs: {e}")
     
     def _process_excel(self):
         """Paso 3: Procesar Excel"""
@@ -929,7 +1149,7 @@ class PaymentApp(ctk.CTk):
             
             archivo = procesador.buscar_archivo_pago_en_descargas(self.numero_pago)
             if archivo:
-                self.log_message(f"✅ Archivo encontrado: {archivo.name}")
+                self.log_message(f" Archivo encontrado: {archivo.name}")
                 
                 gestor = GestorCarpetas(Config.BASE_PAYPAL)
                 carpeta_pago, carpeta_soporte = gestor.crear_estructura_pago(self.numero_pago)
@@ -939,23 +1159,23 @@ class PaymentApp(ctk.CTk):
                 self.log_message(f"📁 Archivo movido a: {carpeta_pago}")
                 
                 procesador.reorganizar_columnas_primera_hoja(self.archivo_movido)
-                self.log_message("✅ Columnas reorganizadas")
+                self.log_message(" Columnas reorganizadas")
                 
                 if Config.RUTA_MAESTRO.exists():
                     self.df_segunda = procesador.crear_segunda_hoja(self.archivo_movido, Config.RUTA_MAESTRO)
-                    self.log_message(f"✅ Segunda hoja creada con {len(self.df_segunda)} registros")
+                    self.log_message(f"Segunda hoja creada con {len(self.df_segunda)} registros")
                     
                     self.df_segunda = procesador.calcular_mon_grupo_y_diferencia(self.archivo_movido, self.df_segunda)
                     
                     procesador.guardar_excel_con_dos_hojas(self.archivo_movido, self.df_segunda)
-                    self.log_message("✅ Procesamiento inicial de Excel completado")
+                    self.log_message(" Procesamiento inicial de Excel completado")
                 else:
                     self.log_message("⚠️ Archivo maestro no encontrado")
             else:
-                self.log_message("❌ No se encontró archivo para procesar")
+                self.log_message(" No se encontró archivo para procesar")
                 
         except Exception as e:
-            self.log_message(f"❌ Error procesando Excel: {e}")
+            self.log_message(f" Error procesando Excel: {e}")
     
     def _update_master(self):
         """Paso 5: Actualizar Maestro"""
@@ -967,7 +1187,7 @@ class PaymentApp(ctk.CTk):
             else:
                 self.log_message("⚠️ No hay archivo procesado para actualizar en el maestro.")
         except Exception as e:
-            self.log_message(f"❌ Error en actualización de maestro: {e}")
+            self.log_message(f" Error en actualización de maestro: {e}")
     
     def _on_workflow_completed(self):
         """Maneja la finalización del workflow"""
@@ -975,15 +1195,15 @@ class PaymentApp(ctk.CTk):
         self.main_progress.set(1.0)
         self.progress_label.configure(text="100%")
         
-        self.log_message("✅ Proceso completado exitosamente")
+        self.log_message(" Proceso completado exitosamente")
         
         summary = f"""
             Pago #{self.numero_pago} completado:
-            ✓ Carpetas verificadas
-            ✓ Archivo SAP descargado
-            ✓ PDFs buscados
-            ✓ Excel procesado
-            ✓ Maestro actualizado
+            Carpetas verificadas
+            Archivo SAP descargado
+            PDFs buscados
+            Excel procesado
+            Maestro actualizado
 
             El sistema está listo para el siguiente pago.
         """
@@ -998,8 +1218,7 @@ class PaymentApp(ctk.CTk):
     def continue_workflow(self):
         """Continuar con otro proceso"""
         self.numero_pago += 1
-        self.payment_entry.delete(0, "end")
-        self.payment_entry.insert(0, str(self.numero_pago))
+        # El número de pago se mostrará automáticamente en la siguiente ejecución
         
         self.btn_ejecutar.configure(state="normal", text=" EJECUTAR PROCESO COMPLETO")
         self.show_state(STATE_IDLE)

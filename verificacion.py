@@ -77,23 +77,77 @@ class VerificadorActualizadorSoportes:
             self.logger.error(f"Error al obtener pagos: {e}")
             return pagos
     
-    def obtener_archivo_excel_pago(self, carpeta_pago: Path) -> Optional[Path]:
-        """Busca el archivo Excel en la carpeta del pago"""
+    def obtener_archivo_excel_pago(self, carpeta_pago: Path) -> List[Path]:
+        """Busca y retorna una lista de candidatos a archivo Excel ordenados por relevancia"""
         try:
-            for archivo in carpeta_pago.glob("*.xlsx"):
-                if "Soporte" not in str(archivo):
-                    return archivo
-            return None
+            extensiones = ["*.xlsx", "*.xlsm", "*.xls"]
+            candidatos = []
+            
+            for ext in extensiones:
+                for archivo in carpeta_pago.glob(ext):
+                    if archivo.name.startswith("~$") or "Soporte" in archivo.name:
+                        continue
+                    candidatos.append(archivo)
+            
+            if not candidatos:
+                return []
+
+            # CRITERIOS DE ORDENACIÓN (Relevancia):
+            # 1. Archivos que empiezan por "EXPORT" o contienen "Pago"
+            # 2. Tamaño del archivo (los reportes reales pesan > 1MB)
+            # 3. Fecha de modificación
+            
+            def prioridad(f: Path):
+                score = 0
+                name_lower = f.name.lower()
+                size_mb = f.stat().st_size / (1024 * 1024)
+                
+                if name_lower.startswith("export"): score += 100
+                if "pago" in name_lower: score += 50
+                if size_mb > 0.5: score += 30  # Más de 500KB es buena señal
+                
+                # Sumar un pequeño factor por fecha para desempatar
+                score += (f.stat().st_mtime / 1_000_000_000) 
+                return score
+
+            candidatos.sort(key=prioridad, reverse=True)
+            self.logger.info(f"Candidatos encontrados: {[f.name for f in candidatos]}")
+            return candidatos
+            
         except Exception as e:
-            self.logger.error(f"Error buscando Excel en {carpeta_pago}: {e}")
-            return None
+            self.logger.error(f"Error buscando candidatos Excel en {carpeta_pago}: {e}")
+            return []
     
     def leer_segunda_hoja_excel(self, archivo_excel: Path) -> Optional[pd.DataFrame]:
         """Lee la segunda hoja del Excel (Reporte Procesado) con dtype object para evitar truncamiento de IDs"""
         try:
-            # Especificar dtype=object para evitar que IDs largos se lean como float o int y se trunquen
-            df = pd.read_excel(archivo_excel, sheet_name='Reporte Procesado', engine='openpyxl', dtype=object)
-            self.logger.info(f"Se leyeron {len(df)} registros de {archivo_excel.name}")
+            # Intentar obtener los nombres de las hojas primero
+            xl = pd.ExcelFile(archivo_excel)
+            hojas = xl.sheet_names
+            
+            # Nombre esperado
+            nombre_esperado = 'Reporte Procesado'
+            
+            if nombre_esperado in hojas:
+                df = pd.read_excel(archivo_excel, sheet_name=nombre_esperado, engine='openpyxl', dtype=object)
+            elif len(hojas) >= 2:
+                # Si no existe el nombre, pero hay al menos 2 hojas, intentar con la segunda hoja por índice
+                self.logger.warning(f"No se encontró la hoja '{nombre_esperado}'. Intentando con la segunda hoja: '{hojas[1]}'")
+                df = pd.read_excel(archivo_excel, sheet_name=1, engine='openpyxl', dtype=object)
+            else:
+                self.logger.error(f"El archivo Excel {archivo_excel.name} solo tiene una hoja: {hojas}. Se requieren al menos 2.")
+                return None
+
+            # CORRECCIÓN DE FECHAS: Asegurar formato dd/mm/aaaa y quitar horas
+            columnas_fecha = ["Date", "Fecha del envío", "Fecha_pago"]
+            for col in columnas_fecha:
+                if col in df.columns:
+                    # Convertir a datetime y luego a string con formato dd/mm/yyyy
+                    df[col] = pd.to_datetime(df[col], errors='coerce').dt.strftime('%d/%m/%Y')
+                    # Reemplazar 'NaT' por vacío
+                    df[col] = df[col].replace('NaT', "")
+
+            self.logger.info(f"Se leyeron {len(df)} registros de {archivo_excel.name} (fechas corregidas)")
             return df
         except Exception as e:
             self.logger.error(f"Error leyendo Excel {archivo_excel}: {e}")
@@ -127,7 +181,7 @@ class VerificadorActualizadorSoportes:
                         for pdf_file in ruta.rglob("*.pdf"):
                             nombre_archivo = pdf_file.name.lower()
                             if termino in nombre_archivo or termino in nombre_archivo.replace(" ", ""):
-                                self.logger.info(f"✅ ENCONTRADO: {pdf_file.name}")
+                                self.logger.info(f"OK ENCONTRADO: {pdf_file.name}")
                                 pdfs_encontrados.append(pdf_file)
                     except Exception as e:
                         self.logger.error(f"Error buscando '{termino}' en {ruta}: {e}")
@@ -158,12 +212,12 @@ class VerificadorActualizadorSoportes:
                     
                     # Si ya existe, no copiar
                     if destino.exists():
-                        self.logger.info(f"⚠️ Ya existe: {doc_path.name}")
+                        self.logger.info(f"AVISO: Ya existe: {doc_path.name}")
                         continue
                     
                     # Copiar archivo
                     shutil.copy2(doc_path, destino)
-                    self.logger.info(f"✅ Copiado a Soporte: {doc_path.name}")
+                    self.logger.info(f"OK Copiado a Soporte: {doc_path.name}")
                     
                     archivos_copiados.append({
                         'nombre': doc_path.name,
@@ -205,18 +259,38 @@ class VerificadorActualizadorSoportes:
     def buscar_archivo_en_soporte(self, 
                                  documentos_soporte: Dict, 
                                  numero_referencia: str, 
-                                 tipo: str = 'factura') -> bool:
-        """Busca si un documento existe en los archivos de Soporte"""
-        if not numero_referencia or numero_referencia.lower() == 'nan':
+                                 tipo: str = 'factura',
+                                 referencia_alternativa: Optional[str] = None) -> bool:
+        """
+        Busca si un documento existe en los archivos de Soporte
+        
+        Args:
+            documentos_soporte: Diccionario de documentos organizados por tipo
+            numero_referencia: Número principal a buscar (Invoice o Guía)
+            tipo: 'factura' o 'guia'
+            referencia_alternativa: Opcional, segundo número para intentar si falla el primero
+        """
+        def _buscar(ref):
+            if not ref or str(ref).lower() == 'nan' or str(ref).strip() == "":
+                return False
+            
+            ref_clean = str(ref).lower().replace(" ", "")
+            lista_documentos = documentos_soporte.get('guias' if tipo == 'guia' else 'facturas', [])
+            
+            for doc in lista_documentos:
+                nombre_clean = doc.name.lower().replace(" ", "")
+                # Búsqueda flexible: el número está en el nombre o viceversa
+                if ref_clean in nombre_clean or (len(ref_clean) > 5 and nombre_clean in ref_clean):
+                    return True
             return False
-        
-        numero_clean = numero_referencia.lower().replace(" ", "")
-        lista_documentos = documentos_soporte.get('guias' if tipo == 'guia' else 'facturas', [])
-        
-        for doc in lista_documentos:
-            nombre_clean = doc.name.lower().replace(" ", "")
-            if numero_clean in nombre_clean or nombre_clean in numero_clean:
-                return True
+
+        # Intentar con la referencia principal
+        if _buscar(numero_referencia):
+            return True
+            
+        # Intentar con la referencia alternativa si existe
+        if referencia_alternativa and _buscar(referencia_alternativa):
+            return True
         
         return False
     
@@ -231,7 +305,8 @@ class VerificadorActualizadorSoportes:
             'falta_guia': False,
             'observacion_original': observaciones,
             'invoice': invoice,
-            'guia': guia
+            'guia': guia,
+            'corregir_excel': False # Flag para forzar guardado si se corrigieron fechas
         }
         
         if not observaciones or observaciones.lower() == 'soportes ok':
@@ -346,7 +421,7 @@ class VerificadorActualizadorSoportes:
         Proceso COMPLETO:
         1. Busca documentos faltantes en OneDrive
         2. Los copia a carpeta Soporte
-        3. Actualiza observaciones en Excel
+        3. Actualiza observaciones en Excel (Y corrige formatos de fecha)
         4. Retorna reporte de cambios
         """
         self.logger.info(f"\n{'='*70}")
@@ -367,10 +442,10 @@ class VerificadorActualizadorSoportes:
                 detalles=[]
             )
         
-        # Obtener archivo Excel
-        archivo_excel = self.obtener_archivo_excel_pago(carpeta_pago)
-        if not archivo_excel:
-            self.logger.error(f"No se encontró Excel")
+        # Obtener lista de archivos Excel candidatos
+        candidatos_excel = self.obtener_archivo_excel_pago(carpeta_pago)
+        if not candidatos_excel:
+            self.logger.error(f"No se encontró ningún archivo Excel en {carpeta_pago}")
             return ResultadoVerificacion(
                 numero_pago=numero_pago,
                 registros_totales=0,
@@ -381,19 +456,30 @@ class VerificadorActualizadorSoportes:
                 detalles=[]
             )
         
-        # Leer datos
-        df = self.leer_segunda_hoja_excel(archivo_excel)
+        # Intentar leer cada candidato hasta encontrar uno válido
+        df = None
+        archivo_excel = None
+        
+        for candidato in candidatos_excel:
+            self.logger.info(f"Intentando leer candidato: {candidato.name}")
+            df = self.leer_segunda_hoja_excel(candidato)
+            if df is not None and not df.empty:
+                archivo_excel = candidato
+                self.logger.info(f"¡Candidato aceptado!: {archivo_excel.name}")
+                break
+            else:
+                self.logger.warning(f"Candidato descartado (sin datos o sin hoja correcta): {candidato.name}")
+        
         if df is None or df.empty:
-            self.logger.warning(f"⚠️ Excel sin datos")
+            self.logger.error(f"Ninguno de los {len(candidatos_excel)} archivos Excel contiene datos válidos.")
             return ResultadoVerificacion(
                 numero_pago=numero_pago,
                 registros_totales=0,
                 registros_con_observaciones=0,
                 documentos_copiados=0,
                 observaciones_actualizadas=0,
-                estado_general="⚠️ Excel sin datos",
-                detalles=[],
-                archivo_excel=archivo_excel
+                estado_general="Excel sin datos válidos",
+                detalles=[]
             )
         
         # Crear copia para actualizar
@@ -404,16 +490,16 @@ class VerificadorActualizadorSoportes:
         carpeta_soporte.mkdir(parents=True, exist_ok=True)
         
         # PASO 1: BUSCAR Y COPIAR DOCUMENTOS
-        self.logger.info("\n📁 PASO 1: Buscando y copiando documentos...")
+        self.logger.info("\nPASO 1: Buscando y copiando documentos...")
         todos_documentos_encontrados = []
         archivos_copiados = []
         
         for idx, row in df.iterrows():
             observacion = str(row.get('Observaciones', '')).strip()
             
-            # Saltar si no tiene observaciones o ya está completo
-            if not observacion or observacion.lower() == 'soportes ok':
-                continue
+            # Saltar si ya está completo PERO procesar igual para copiar PDFs si faltan físicamente
+            invoice = str(row.get('Invoice Numbers', '')).strip()
+            guia = str(row.get('Número guía', '')).strip()
             
             invoice = str(row.get('Invoice Numbers', '')).strip()
             guia = str(row.get('Número guía', '')).strip()
@@ -436,7 +522,7 @@ class VerificadorActualizadorSoportes:
             archivos_copiados.extend(copiados)
         
         # PASO 2: ANALIZAR Y ACTUALIZAR OBSERVACIONES
-        self.logger.info("\n📝 PASO 2: Analizando y actualizando observaciones...")
+        self.logger.info("\nPASO 2: Analizando y actualizando observaciones...")
         
         documentos_en_soporte = self.obtener_documentos_en_soporte(carpeta_soporte)
         detalles = []
@@ -462,14 +548,16 @@ class VerificadorActualizadorSoportes:
                 factura_encontrada = self.buscar_archivo_en_soporte(
                     documentos_en_soporte, 
                     info_obs['invoice'], 
-                    'factura'
+                    'factura',
+                    referencia_alternativa=info_obs['guia']
                 )
             
             if info_obs['falta_guia']:
                 guia_encontrada = self.buscar_archivo_en_soporte(
                     documentos_en_soporte, 
                     info_obs['guia'], 
-                    'guia'
+                    'guia',
+                    referencia_alternativa=info_obs['invoice']
                 )
             
             # Determinar nueva observación
@@ -514,25 +602,21 @@ class VerificadorActualizadorSoportes:
             detalles.append(detalle)
         
         # PASO 3: GUARDAR EXCEL ACTUALIZADO
-        self.logger.info("\n💾 PASO 3: Guardando Excel actualizado...")
+        self.logger.info("\nPASO 3: Guardando Excel actualizado y corrigiendo formatos de fecha...")
         
-        if observaciones_actualizadas > 0:
-            exito = self.actualizar_excel_con_nuevas_observaciones(archivo_excel, df_actualizado)
-            if not exito:
-                self.logger.error("Error al guardar Excel")
-        else:
-            self.logger.info("ℹ️ No hay cambios para guardar")
+        # Siempre guardamos el Excel para asegurar que las correcciones de fecha se apliquen
+        exito = self.actualizar_excel_con_nuevas_observaciones(archivo_excel, df_actualizado)
+        if not exito:
+            self.logger.error("Error al guardar Excel")
         
         # Estado general
         if len(archivos_copiados) > 0:
             estado_general = (
-                f"✅ {len(archivos_copiados)} archivos copiados, "
-                f"{observaciones_actualizadas} observaciones actualizadas"
+                f"OK {len(archivos_copiados)} archivos copiados, "
+                f"fechas corregidas y {observaciones_actualizadas} observaciones"
             )
-        elif observaciones_actualizadas > 0:
-            estado_general = f"✅ {observaciones_actualizadas} observaciones actualizadas"
         else:
-            estado_general = "ℹ️ Verificación completada (sin cambios)"
+            estado_general = f"OK Fechas corregidas y {observaciones_actualizadas} observaciones actualizadas"
         
         self.logger.info(f"\n{'='*70}")
         self.logger.info(f"RESUMEN - Pago #{numero_pago}")

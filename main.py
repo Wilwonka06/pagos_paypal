@@ -79,6 +79,11 @@ class Config:
 def configurar_logging():
     """Configura el sistema de logging"""
     try:
+        # Forzar UTF-8 en stdout para evitar errores con emojis en Windows
+        import io
+        if sys.stdout.encoding != 'utf-8':
+            sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+            
         handlers = [logging.StreamHandler(sys.stdout)]
         if getattr(Config, "ACTIVAR_LOG_ARCHIVO", False):
             log_dir = Path("logs")
@@ -137,8 +142,11 @@ class GestorCarpetas:
             carpetas_existentes.sort()
 
             for num, ruta in carpetas_existentes:
-                # 1. Verificar si tiene Excel (archivo .xlsx en la raíz de la carpeta de pago)
-                tiene_excel = any(f.suffix.lower() == '.xlsx' for f in ruta.iterdir() if f.is_file())
+                # 1. Verificar si tiene Excel (Soporta .xlsx, .xlsm, .xls)
+                tiene_excel = any(f.suffix.lower() in ['.xlsx', '.xlsm', '.xls'] 
+                                 and not f.name.startswith("~$") 
+                                 and "Soporte" not in f.name
+                                 for f in ruta.iterdir() if f.is_file())
                 
                 # 2. Verificar si tiene soportes (PDFs)
                 pdfs_en_raiz = any(f.suffix.lower() == '.pdf' for f in ruta.iterdir() if f.is_file())
@@ -204,11 +212,17 @@ class DescargadorSAP:
         self.logger = logging.getLogger(__name__)
         self.download_path = Config.RUTA_DESCARGAS
     
-    def configurar_edge(self) -> webdriver.Edge:
-        """Configura el navegador Microsoft Edge con opciones personalizadas"""
+    def configurar_chrome(self) -> webdriver.Chrome:
+        """Configura el navegador Google Chrome con opciones personalizadas"""
         try:
-            options = webdriver.EdgeOptions()
-            options.use_chromium = True
+            from selenium.webdriver.chrome.service import Service
+            from subprocess import CREATE_NO_WINDOW
+            
+            options = webdriver.ChromeOptions()
+            
+            # Desactivar logs innecesarios de la consola
+            options.add_argument("--log-level=3")
+            options.add_experimental_option('excludeSwitches', ['enable-logging'])
 
             prefs = {
                 "download.default_directory": str(self.download_path),
@@ -217,12 +231,16 @@ class DescargadorSAP:
             }
             options.add_experimental_option("prefs", prefs)
             
-            driver = webdriver.Edge(options=options)
-            self.logger.info("Navegador Microsoft Edge configurado correctamente")
+            # Configurar el servicio para evitar ventanas de consola y ruidos
+            service = Service()
+            service.creation_flags = CREATE_NO_WINDOW
+            
+            driver = webdriver.Chrome(options=options, service=service)
+            self.logger.info("Navegador Google Chrome configurado correctamente")
             return driver
         
         except Exception as e:
-            self.logger.error(f"Error al configurar Microsoft Edge: {e}")
+            self.logger.error(f"Error al configurar Google Chrome: {e}")
             raise
     
     def esperar_descarga(self, timeout: int = Config.TIMEOUT_DOWNLOAD, patron_alternativo: str = None) -> Optional[Path]:
@@ -296,7 +314,7 @@ class DescargadorSAP:
         """
         try:
             self.numero_pago_actual = numero_pago
-            self.driver = self.configurar_edge()
+            self.driver = self.configurar_chrome()
             wait = WebDriverWait(self.driver, Config.TIMEOUT_SAP)
             
             # 1. Acceder a SAP
@@ -694,8 +712,8 @@ class ProcesadorExcel:
             columnas_fecha = ["Date", "Fecha del envío", "Fecha_pago"]
             for col in columnas_fecha:
                 if col in df_final.columns:
-                    # Convertir a datetime y luego a string con formato YYYY-MM-DD para evitar horas en Excel
-                    df_final[col] = pd.to_datetime(df_final[col], errors='coerce').dt.strftime('%Y-%m-%d')
+                    # Convertir a datetime y luego a string con formato DD/MM/YYYY para evitar horas en Excel
+                    df_final[col] = pd.to_datetime(df_final[col], errors='coerce').dt.strftime('%d/%m/%Y')
                     # Reemplazar 'NaT' (resultado de errores en to_datetime) por None o vacío
                     df_final[col] = df_final[col].replace('NaT', None)
             
