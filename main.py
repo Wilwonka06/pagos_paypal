@@ -59,7 +59,7 @@ class Config:
 
     # Timeouts — sin cambios
     TIMEOUT_SAP      = 30
-    TIMEOUT_DOWNLOAD = 60
+    TIMEOUT_DOWNLOAD = 30
     ACTIVAR_LOG_ARCHIVO = False
 
     @classmethod
@@ -527,9 +527,12 @@ class ProcesadorExcel:
             raise
     
     def crear_segunda_hoja(self, archivo_principal: Path, 
-                          archivo_maestro: Path) -> pd.DataFrame:
+                          archivo_maestro: Path,
+                          mes_filtro: int = None,
+                          año_filtro: int = None) -> pd.DataFrame:
         """
-        Crea la segunda hoja filtrando datos del maestro por mes actual
+        Crea la segunda hoja filtrando datos del maestro por el mes y año proporcionados.
+        Si no se proporcionan, usa el mes y año actual.
         """
         try:
             # Leer archivo maestro
@@ -565,11 +568,11 @@ class ProcesadorExcel:
             df_maestro.columns = [str(col).strip() for col in df_maestro.columns]
             columnas_normalizadas = {col.lower(): col for col in df_maestro.columns}
             
-            # Obtener mes y año actual
-            mes_actual = datetime.now().month
-            año_actual = datetime.now().year
+            # Obtener mes y año para el filtro
+            mes_actual = mes_filtro if mes_filtro is not None else datetime.now().month
+            año_actual = año_filtro if año_filtro is not None else datetime.now().year
             
-            # 3. Filtrar por Fecha_pago del mes actual
+            # 3. Filtrar por Fecha_pago del mes solicitado
             COL_FECHA_PAGO = 'Fecha_pago'
 
             if COL_FECHA_PAGO not in df_maestro.columns:
@@ -631,7 +634,7 @@ class ProcesadorExcel:
                 self.logger.error(
                     f"\n{'!'*60}\n"
                     f"PROCESO DETENIDO: No hay registros con '{COL_FECHA_PAGO}' en\n"
-                    f"{mes_actual:02d}/{año_actual} (mes actual del dispositivo).\n\n"
+                    f"{mes_actual:02d}/{año_actual}.\n\n"
                     f"Meses con registros disponibles en el maestro:\n{meses_disponibles}\n\n"
                     f"ACCIÓN REQUERIDA:\n"
                     f"  1. Abra el archivo maestro:\n"
@@ -639,11 +642,12 @@ class ProcesadorExcel:
                     f"  2. En la hoja '{nombre_hoja}', columna '{COL_FECHA_PAGO}',\n"
                     f"     ingrese la fecha del pago ({mes_actual:02d}/{año_actual}) para los\n"
                     f"     registros de este mes y vuelva a ejecutar.\n"
+                    f"     (O asegúrese de haber seleccionado el mes correcto en la interfaz)\n"
                     f"{'!'*60}"
                 )
                 raise ValueError(
                     f"No hay registros con '{COL_FECHA_PAGO}' en {mes_actual:02d}/{año_actual}. "
-                    f"Llene las fechas del mes actual en el maestro y vuelva a ejecutar."
+                    f"Llene las fechas o seleccione el mes correcto y vuelva a ejecutar."
                 )
             
             df_final = pd.DataFrame(columns=Config.COLUMNAS_SEGUNDA_HOJA)
@@ -1082,7 +1086,7 @@ class GestorPDFs:
             self.logger.error(f"ERROR AL EXTRAER FECHA DEL PDF {pdf_path.name}: {str(e)}")
             return None
     
-    def procesar_documentos_soporte(self, df: pd.DataFrame, carpeta_soporte: Path) -> pd.DataFrame:
+    def procesar_documentos_soporte(self, df: pd.DataFrame, carpeta_soporte: Path, progress_callback=None) -> pd.DataFrame:
         """
         Busca, mueve y valida PDFs siguiendo el flujo: Copiar -> Clasificar -> Validar
         """
@@ -1101,6 +1105,10 @@ class GestorPDFs:
             self.logger.info(f"Iniciando flujo de soportes para {total_procesar} registros...")
             
             for idx, row in df.iterrows():
+                if progress_callback:
+                    progreso = idx / total_procesar
+                    progress_callback(progreso, f"Procesando soporte {idx+1}/{total_procesar}")
+
                 # Limpiar valores para detectar si la fila está realmente vacía
                 def _limpiar(val):
                     v = str(val).strip().lower()
@@ -1176,10 +1184,12 @@ class GestorPDFs:
                         continue # Si es guía, no la evaluamos como factura
 
                     # 2. Es una FACTURA si:
-                    # - Contiene el invoice_val Y NO contiene la palabra 'guia'
+                    # - El nombre contiene el invoice_val Y NO contiene la palabra 'guia'
+                    # - O si el nombre coincide con el patrón de factura (sin 'guia')
                     if inv_clean and inv_clean != 'nan' and inv_clean in nombre_clean:
-                        if "guia" not in nombre_low:
+                        if "guia" not in nombre_clean:
                             tiene_factura = True
+                            self.logger.info(f"Factura identificada: {archivo.name}")
 
                 # --- FASE 3: VALIDAR Y ASIGNAR OBSERVACIONES ---
                 fecha_coincide = True
@@ -1204,12 +1214,13 @@ class GestorPDFs:
                                 fecha_coincide = False
 
                         # SIEMPRE actualizamos con la fecha del PDF si la encontramos
-                        df.at[idx, 'Fecha del envío'] = fecha_pdf.date()
+                        # Convertimos a string dd/mm/yyyy para evitar errores de tipo en el DataFrame
+                        df.at[idx, 'Fecha del envío'] = fecha_pdf.strftime('%d/%m/%Y')
                     else:
                         self.logger.warning(f"No se pudo extraer fecha del PDF: {guia_encontrada_path.name}")
 
                 # Determinar observación final basada en los casos solicitados
-                observacion_final = ""
+                observacion_final = "Soportes OK"
                 msg_fecha_anterior = f"Fecha anterior registrada {fecha_anterior_str}"
                 
                 if not tiene_factura and not tiene_guia:
@@ -1227,6 +1238,7 @@ class GestorPDFs:
                     else:
                         observacion_final = "Soportes OK"
 
+                self.logger.info(f"Registro {idx}: Factura={tiene_factura}, Guía={tiene_guia}, Coincide={fecha_coincide} -> {observacion_final}")
                 df.at[idx, 'Observaciones'] = observacion_final
 
             self.logger.info("Procesamiento de soportes finalizado con el nuevo flujo.")

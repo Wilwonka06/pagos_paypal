@@ -53,7 +53,7 @@ class PaymentApp(ctk.CTk):
         super().__init__()
         
         # Configuración de ventana
-        self.title("💰 Automatización de Pagos PayPal")
+        self.title(" Automatización de Pagos PayPal")
         
         # Obtener dimensiones de pantalla para un inicio proporcional pero grande
         screen_width = self.winfo_screenwidth()
@@ -103,13 +103,21 @@ class PaymentApp(ctk.CTk):
             'success': COLOR_SUCCESS
         }
         
-        # Pasos del workflow
+        # Pasos del workflow principal
         self.workflow_steps = [
             ("step1", "Verificar carpetas"),
             ("step2", "Descargar de SAP"),
             ("step3", "Procesar Excel"),
             ("step4", "Buscar PDFs"),
             ("step5", "Actualizar Maestro")
+        ]
+
+        # Pasos del workflow de verificación
+        self.verification_steps = [
+            ("v_step1", "Identificar archivos"),
+            ("v_step2", "Buscar y Copiar PDFs"),
+            ("v_step3", "Analizar Observaciones"),
+            ("v_step4", "Guardar Resultados")
         ]
         
         # Configurar estilo
@@ -199,6 +207,7 @@ class PaymentApp(ctk.CTk):
         self.create_running_content()
         self.create_completed_content()
         self.create_verificar_soportes_content()
+        self.create_verificando_content()
         self.create_resultado_verificacion_content()
                 
         # ========== BARRA DE ESTADO ==========
@@ -284,7 +293,23 @@ class PaymentApp(ctk.CTk):
             text="Acciones Rápidas",
             font=("Roboto", 18, "bold"),
             text_color=COLOR_TEXT
-        ).pack(pady=(30, 20))
+        ).pack(pady=(30, 10))
+
+        # Selectores de Periodo (Mes y Año)
+        ctk.CTkLabel(action_side, text="Periodo del Reporte:", font=("Roboto", 11, "bold"), text_color=COLOR_TEXT_DIM).pack(pady=(0, 5))
+        date_frame = ctk.CTkFrame(action_side, fg_color="transparent")
+        date_frame.pack(fill="x", padx=30, pady=(0, 20))
+        
+        meses = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", 
+                 "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
+        self.mes_select = ctk.CTkComboBox(date_frame, values=meses, width=110, height=35, state="readonly")
+        self.mes_select.set(meses[datetime.now().month - 1])
+        self.mes_select.pack(side="left", expand=True, padx=(0, 5))
+        
+        años = [str(y) for y in range(datetime.now().year - 1, datetime.now().year + 2)]
+        self.año_select = ctk.CTkComboBox(date_frame, values=años, width=70, height=35, state="readonly")
+        self.año_select.set(str(datetime.now().year))
+        self.año_select.pack(side="left", expand=True, padx=(5, 0))
         
         # Botón Principal
         self.btn_ejecutar = ctk.CTkButton(
@@ -440,6 +465,108 @@ class PaymentApp(ctk.CTk):
         )
         self.btn_cancelar.pack(pady=(10, 0))
     
+    def create_verificando_content(self):
+        """Crea el contenido del estado de verificación en progreso"""
+        self.verificando_frame = ctk.CTkFrame(self.content_frame, fg_color="transparent")
+        
+        self.verificando_frame.grid_columnconfigure(0, weight=1)
+        self.verificando_frame.grid_rowconfigure(0, weight=1)
+        
+        scroll_container = ctk.CTkScrollableFrame(self.verificando_frame, fg_color="transparent")
+        scroll_container.grid(row=0, column=0, sticky="nsew", padx=20, pady=20)
+        
+        header_section = ctk.CTkFrame(scroll_container, fg_color="transparent")
+        header_section.pack(fill="x", pady=(0, 20))
+        
+        self.v_payment_display = ctk.CTkLabel(
+            header_section,
+            text="Actualizando Soportes Pago #---",
+            font=("Roboto", 22, "bold"),
+            text_color=COLOR_TEXT
+        )
+        self.v_payment_display.pack()
+        
+        self.v_current_step_label = ctk.CTkLabel(
+            header_section,
+            text="Iniciando...",
+            font=("Roboto", 13),
+            text_color=COLOR_TEXT_DIM
+        )
+        self.v_current_step_label.pack(pady=2)
+
+        progress_section = ctk.CTkFrame(scroll_container, fg_color=COLOR_ACCENT_LIGHT, corner_radius=15)
+        progress_section.pack(fill="x", pady=10)
+        
+        self.v_main_progress = ctk.CTkProgressBar(
+            progress_section,
+            width=400,
+            height=10,
+            progress_color=COLOR_PRIMARY
+        )
+        self.v_main_progress.set(0)
+        self.v_main_progress.pack(padx=30, pady=(20, 5))
+        
+        self.v_progress_label = ctk.CTkLabel(
+            progress_section,
+            text="0%",
+            font=("Roboto", 14, "bold"),
+            text_color=COLOR_TEXT
+        )
+        self.v_progress_label.pack(pady=(0, 15))
+
+        # Pasos específicos de verificación
+        v_steps_panel = ctk.CTkFrame(scroll_container, fg_color="transparent")
+        v_steps_panel.pack(fill="x", pady=10)
+        
+        self.v_step_labels = {}
+        v_steps_list_frame = ctk.CTkFrame(v_steps_panel, fg_color="transparent")
+        v_steps_list_frame.pack(expand=True)
+
+        for step_id, step_name in self.verification_steps:
+            f = ctk.CTkFrame(v_steps_list_frame, fg_color="transparent")
+            f.pack(side="left", padx=15)
+            
+            icon = ctk.CTkLabel(f, text="○", font=("Roboto", 20), text_color=COLOR_TEXT_DIM)
+            icon.pack()
+            
+            lbl = ctk.CTkLabel(f, text=step_name.replace(" ", "\n"), font=("Roboto", 10), text_color=COLOR_TEXT_DIM)
+            lbl.pack()
+            
+            self.v_step_labels[step_id] = {'icon': icon, 'label': lbl}
+
+        info_panel = ctk.CTkFrame(scroll_container, fg_color=COLOR_ACCENT_LIGHT, corner_radius=10)
+        info_panel.pack(fill="both", expand=True, pady=10)
+        
+        ctk.CTkLabel(
+            info_panel,
+            text="📋 Actividad reciente:",
+            font=("Roboto", 12, "bold"),
+            text_color=COLOR_TEXT
+        ).pack(anchor="w", padx=20, pady=(10, 2))
+        
+        self.v_last_log_label = ctk.CTkLabel(
+            info_panel,
+            text="Iniciando verificación...",
+            font=("Roboto", 11),
+            text_color=COLOR_SUCCESS,
+            justify="left"
+        )
+        self.v_last_log_label.pack(anchor="w", padx=20, pady=(0, 15))
+        
+        self.v_btn_cancelar = ctk.CTkButton(
+            scroll_container,
+            text="✕ Cancelar Verificación",
+            command=self.cancel_process,
+            fg_color="transparent",
+            border_color=COLOR_ERROR,
+            border_width=1,
+            text_color=COLOR_ERROR,
+            hover_color=("#FFEBEE", "#331111"),
+            height=35,
+            width=200
+        )
+        self.v_btn_cancelar.pack(pady=(10, 0))
+
     def create_completed_content(self):
         """Crea el contenido del estado COMPLETED con un diseño visualmente atractivo y scroll"""
         self.completed_frame = ctk.CTkFrame(self.content_frame, fg_color="transparent")
@@ -790,18 +917,42 @@ class PaymentApp(ctk.CTk):
             # Crear verificador/actualizador
             verificador = VerificadorActualizadorSoportes(Config.RUTAS_PDF)
             
-            # PROCESO COMPLETO:
-            # 1. Busca documentos en OneDrive
-            # 2. Copia a carpeta Soporte
-            # 3. Actualiza observaciones en Excel
-            
+            # Callback para progreso real
+            def update_progress(p, msg):
+                self.after(0, lambda: self.v_main_progress.set(p))
+                self.after(0, lambda: self.v_progress_label.configure(text=f"{int(p * 100)}%"))
+                
+                # Actualizar pasos según el progreso p (0.0 a 1.0)
+                if p < 0.15:
+                    self.update_verification_step_icon("v_step1", "🔄", COLOR_PRIMARY)
+                elif p < 0.60:
+                    self.update_verification_step_icon("v_step1", "✓", COLOR_SUCCESS)
+                    self.update_verification_step_icon("v_step2", "🔄", COLOR_PRIMARY)
+                elif p < 0.95:
+                    self.update_verification_step_icon("v_step2", "✓", COLOR_SUCCESS)
+                    self.update_verification_step_icon("v_step3", "🔄", COLOR_PRIMARY)
+                elif p < 1.0:
+                    self.update_verification_step_icon("v_step3", "✓", COLOR_SUCCESS)
+                    self.update_verification_step_icon("v_step4", "🔄", COLOR_PRIMARY)
+                else:
+                    self.update_verification_step_icon("v_step4", "✓", COLOR_SUCCESS)
+
+                # Actualizar log visual específico
+                if hasattr(self, 'v_last_log_label'):
+                    self.after(0, lambda: self.v_last_log_label.configure(text=f"• {msg}"))
+                if hasattr(self, 'v_current_step_label'):
+                    self.after(0, lambda: self.v_current_step_label.configure(text=msg))
+                
+                self.log_message(msg)
+
             # Verificar cancelación antes de iniciar
             if self.check_cancel_and_continue():
                 return
             
             resultado = verificador.procesar_pago_completo(
                 self.pago_verificando, 
-                Config.BASE_PAYPAL
+                Config.BASE_PAYPAL,
+                progress_callback=update_progress
             )
             
             # Verificar cancelación después de proceso
@@ -899,6 +1050,8 @@ class PaymentApp(ctk.CTk):
             self.completed_frame.pack_forget()
         if hasattr(self, 'verificar_frame'):
             self.verificar_frame.pack_forget()
+        if hasattr(self, 'verificando_frame'):
+            self.verificando_frame.pack_forget()
         if hasattr(self, 'resultado_frame'):
             self.resultado_frame.pack_forget()
         if hasattr(self, 'config_frame'):
@@ -926,12 +1079,24 @@ class PaymentApp(ctk.CTk):
             self.verificar_frame.pack(fill="both", expand=True)
         
         elif state == "verificando":
-            if not hasattr(self, 'running_frame'):
-                self.create_running_content()
-            self.running_frame.pack(fill="both", expand=True)
+            if not hasattr(self, 'verificando_frame'):
+                self.create_verificando_content()
+            self.verificando_frame.pack(fill="both", expand=True)
+            
+            # Resetear iconos de pasos de verificación
+            for step_id, _ in self.verification_steps:
+                self.update_verification_step_icon(step_id, "○", COLOR_TEXT_DIM)
+                
             # Actualizar título para verificación
-            if hasattr(self, 'payment_number_display'):
-                self.payment_number_display.configure(text=f"#{self.pago_verificando}")
+            if hasattr(self, 'v_payment_display'):
+                self.v_payment_display.configure(text=f"Actualizando Soportes Pago #{self.pago_verificando}")
+            
+            # Resetear progreso
+            if hasattr(self, 'v_main_progress'):
+                self.v_main_progress.set(0)
+            if hasattr(self, 'v_progress_label'):
+                self.v_progress_label.configure(text="0%")
+            
             self.log_message("Buscando y actualizando soportes...")
         
         elif state == "resultado_verificacion":
@@ -955,6 +1120,12 @@ class PaymentApp(ctk.CTk):
         try:
             # Resetear flag de cancelación
             self.cancel_requested = False
+
+            # Obtener mes y año seleccionados
+            meses_dict = {"Enero":1, "Febrero":2, "Marzo":3, "Abril":4, "Mayo":5, "Junio":6, 
+                          "Julio":7, "Agosto":8, "Septiembre":9, "Octubre":10, "Noviembre":11, "Diciembre":12}
+            self.mes_pago = meses_dict.get(self.mes_select.get(), datetime.now().month)
+            self.año_pago = int(self.año_select.get())
             
             # Obtener el siguiente número de pago automáticamente
             gestor = GestorCarpetas(Config.BASE_PAYPAL)
@@ -1065,6 +1236,22 @@ class PaymentApp(ctk.CTk):
             else: # Pendiente u otro
                 self.step_labels[step_id]['label'].configure(text_color=COLOR_TEXT_DIM, font=("Roboto", 12))
                 
+        self.after(0, _update)
+
+    def update_verification_step_icon(self, step_id, icon, color):
+        """Actualiza el icono y estilo de un paso en el timeline de verificación"""
+        def _update():
+            if step_id in self.v_step_labels:
+                # Cambiar icono y color
+                self.v_step_labels[step_id]['icon'].configure(text=icon, text_color=color)
+                
+                # Cambiar estilo del texto
+                if icon == "✓": # Éxito
+                    self.v_step_labels[step_id]['label'].configure(text_color=COLOR_SUCCESS, font=("Roboto", 11, "bold"))
+                elif icon == "🔄": # En proceso
+                    self.v_step_labels[step_id]['label'].configure(text_color=COLOR_PRIMARY, font=("Roboto", 11, "bold"))
+                else: # Pendiente u otro
+                    self.v_step_labels[step_id]['label'].configure(text_color=COLOR_TEXT_DIM, font=("Roboto", 10))
         self.after(0, _update)
     
     def log_message(self, message):
@@ -1189,7 +1376,23 @@ class PaymentApp(ctk.CTk):
         try:
             if self.df_segunda is not None and self.carpeta_soporte:
                 gestor_pdfs = GestorPDFs(Config.RUTAS_PDF)
-                self.df_segunda = gestor_pdfs.procesar_documentos_soporte(self.df_segunda, self.carpeta_soporte)
+                
+                # Callback para progreso real dentro del paso
+                step_index = 3 # Índice del paso 4 (0-based)
+                total_steps = len(self.workflow_steps)
+                
+                def update_step_progress(p, msg):
+                    # Mapear p (0.0 a 1.0) al rango del paso (index/total a (index+1)/total)
+                    real_p = (step_index + p) / total_steps
+                    self.after(0, lambda: self.main_progress.set(real_p))
+                    self.after(0, lambda: self.progress_label.configure(text=f"{int(real_p * 100)}%"))
+                    self.log_message(msg)
+
+                self.df_segunda = gestor_pdfs.procesar_documentos_soporte(
+                    self.df_segunda, 
+                    self.carpeta_soporte,
+                    progress_callback=update_step_progress
+                )
                 
                 procesador = ProcesadorExcel()
                 procesador.guardar_excel_con_dos_hojas(self.archivo_movido, self.df_segunda)
@@ -1221,7 +1424,12 @@ class PaymentApp(ctk.CTk):
                 self.log_message(" Columnas reorganizadas")
                 
                 if Config.RUTA_MAESTRO.exists():
-                    self.df_segunda = procesador.crear_segunda_hoja(self.archivo_movido, Config.RUTA_MAESTRO)
+                    self.df_segunda = procesador.crear_segunda_hoja(
+                        self.archivo_movido, 
+                        Config.RUTA_MAESTRO,
+                        mes_filtro=getattr(self, 'mes_pago', None),
+                        año_filtro=getattr(self, 'año_pago', None)
+                    )
                     self.log_message(f"Segunda hoja creada con {len(self.df_segunda)} registros")
                     
                     self.df_segunda = procesador.calcular_mon_grupo_y_diferencia(self.archivo_movido, self.df_segunda)

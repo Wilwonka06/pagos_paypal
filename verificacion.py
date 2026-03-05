@@ -471,7 +471,7 @@ class VerificadorActualizadorSoportes:
             self.logger.error(f"Error guardando Excel: {e}")
             return False
     
-    def procesar_pago_completo(self, numero_pago: int, base_paypal: Path) -> ResultadoVerificacion:
+    def procesar_pago_completo(self, numero_pago: int, base_paypal: Path, progress_callback=None) -> ResultadoVerificacion:
         """
         Proceso COMPLETO:
         1. Busca documentos faltantes en OneDrive
@@ -483,6 +483,9 @@ class VerificadorActualizadorSoportes:
         self.logger.info(f"PROCESANDO PAGO #{numero_pago}")
         self.logger.info(f"{'='*70}")
         
+        if progress_callback:
+            progress_callback(0.05, "Verificando carpeta de pago...")
+
         carpeta_pago = base_paypal / f"Pago #{numero_pago}"
         
         if not carpeta_pago.exists():
@@ -498,6 +501,9 @@ class VerificadorActualizadorSoportes:
             )
         
         # Obtener lista de archivos Excel candidatos
+        if progress_callback:
+            progress_callback(0.1, "Buscando archivo Excel...")
+            
         candidatos_excel = self.obtener_archivo_excel_pago(carpeta_pago)
         if not candidatos_excel:
             self.logger.error(f"No se encontró ningún archivo Excel en {carpeta_pago}")
@@ -546,16 +552,21 @@ class VerificadorActualizadorSoportes:
         
         # PASO 1: BUSCAR Y COPIAR DOCUMENTOS
         self.logger.info("\nPASO 1: Buscando y copiando documentos...")
+        if progress_callback:
+            progress_callback(0.15, "Iniciando búsqueda de PDFs...")
+
         todos_documentos_encontrados = []
         archivos_copiados = []
         
+        total_filas = len(df)
         for idx, row in df.iterrows():
+            if progress_callback:
+                progreso = 0.15 + (idx / total_filas) * 0.45 # De 15% a 60%
+                progress_callback(progreso, f"Buscando PDFs: {idx+1}/{total_filas}")
+
             observacion = str(row.get('Observaciones', '')).strip()
             
             # Saltar si ya está completo PERO procesar igual para copiar PDFs si faltan físicamente
-            invoice = str(row.get('Invoice Numbers', '')).strip()
-            guia = str(row.get('Número guía', '')).strip()
-            
             invoice = str(row.get('Invoice Numbers', '')).strip()
             guia = str(row.get('Número guía', '')).strip()
             
@@ -578,7 +589,9 @@ class VerificadorActualizadorSoportes:
         
         # PASO 2: ANALIZAR Y ACTUALIZAR OBSERVACIONES
         self.logger.info("\nPASO 2: Analizando y actualizando observaciones...")
-        
+        if progress_callback:
+            progress_callback(0.60, "Analizando observaciones...")
+
         documentos_en_soporte = self.obtener_documentos_en_soporte(carpeta_soporte)
         detalles = []
         cambios_realizados = []
@@ -586,6 +599,10 @@ class VerificadorActualizadorSoportes:
         registros_con_observaciones = 0
         
         for idx, row in df.iterrows():
+            if progress_callback:
+                progreso = 0.60 + (idx / total_filas) * 0.30 # De 60% a 90%
+                progress_callback(progreso, f"Analizando fila: {idx+1}/{total_filas}")
+
             info_obs = self.analizar_observaciones_registro(row)
             observacion_original = info_obs['observacion_original']
             
@@ -658,11 +675,16 @@ class VerificadorActualizadorSoportes:
         
         # PASO 3: GUARDAR EXCEL ACTUALIZADO
         self.logger.info("\nPASO 3: Guardando Excel actualizado y corrigiendo formatos de fecha...")
-        
+        if progress_callback:
+            progress_callback(0.95, "Guardando Excel...")
+
         # Siempre guardamos el Excel para asegurar que las correcciones de fecha se apliquen
         exito = self.actualizar_excel_con_nuevas_observaciones(archivo_excel, df_actualizado)
         if not exito:
             self.logger.error("Error al guardar Excel")
+        
+        if progress_callback:
+            progress_callback(1.0, "Proceso finalizado")
         
         # Estado general
         if len(archivos_copiados) > 0:
