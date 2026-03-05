@@ -1,7 +1,8 @@
 import customtkinter as ctk
 from tkinter import messagebox
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime 
+from config_manager import ConfiguradorRutasPayPal
 import threading
 import logging
 import sys
@@ -69,6 +70,9 @@ class PaymentApp(ctk.CTk):
         # Forzar el estado maximizado después de que la ventana se haya inicializado un poco
         self.after(100, lambda: self.state('zoomed'))
         
+        # Protocolo de cierre de ventana (X)
+        self.protocol("WM_DELETE_WINDOW", self.on_close)
+        
         # Configurar logging
         self.logger = configurar_logging()
         
@@ -110,6 +114,17 @@ class PaymentApp(ctk.CTk):
         
         # Configurar estilo
         self.configure(fg_color=COLOR_SECONDARY)
+
+        # ── Configuración de rutas ──────────────────────────────────────
+        self.configurador = ConfiguradorRutasPayPal()
+
+        if not self.configurador.cargar_config():
+            # Primera ejecución: mostrar config obligatoria
+            self._config_pendiente = True
+        else:
+            rutas = self.configurador.obtener_rutas()
+            Config.cargar_desde_ini(rutas)
+            self._config_pendiente = False
         
         # Crear interfaz
         self.create_widgets()
@@ -152,6 +167,19 @@ class PaymentApp(ctk.CTk):
         )
         self.brand_label.pack(side="left", padx=15, pady=15)
 
+        # Botón de configuración en el header
+        ctk.CTkButton(
+            self.header_content,
+            text="⚙️",
+            command=lambda: self.show_state("config_rutas"),
+            width=40,
+            height=40,
+            fg_color="transparent",
+            text_color=COLOR_PRIMARY,
+            hover_color=COLOR_ACCENT,
+            font=("Roboto", 18)
+        ).pack(side="right", padx=10)
+
         # ========== CONTENIDO PRINCIPAL ==========
         self.main_container = ctk.CTkFrame(self, fg_color="transparent")
         self.main_container.pack(fill="both", expand=True, padx=40, pady=30)
@@ -192,6 +220,9 @@ class PaymentApp(ctk.CTk):
         
         # Mostrar estado inicial
         self.show_state(STATE_IDLE)
+        # Mostrar config si es primera ejecución
+        if getattr(self, '_config_pendiente', False):
+            self.after(100, self._mostrar_config_obligatoria)
     
     def create_idle_content(self):
         """Crea el contenido del estado IDLE con un diseño moderno y scroll"""
@@ -296,7 +327,6 @@ class PaymentApp(ctk.CTk):
             text_color=COLOR_TEXT_DIM
         ).pack(pady=(0, 20))
         
-    
     def create_running_content(self):
         """Crea el contenido del estado RUNNING con un diseño compacto y adaptativo"""
         self.running_frame = ctk.CTkFrame(self.content_frame, fg_color="transparent")
@@ -496,10 +526,6 @@ class PaymentApp(ctk.CTk):
             height=45
         ).pack(side="left", fill="x", expand=True, padx=(10, 0))
     
-    # ════════════════════════════════════════════════════════════════════════
-    # NUEVO: MÉTODOS PARA VERIFICACIÓN DE SOPORTES
-    # ════════════════════════════════════════════════════════════════════════
-    
     def create_verificar_soportes_content(self):
         """Rediseño de la interfaz de actualización de soportes con scroll"""
         self.verificar_frame = ctk.CTkFrame(self.content_frame, fg_color="transparent")
@@ -544,6 +570,26 @@ class PaymentApp(ctk.CTk):
             font=("Roboto", 12, "bold"),
             text_color=COLOR_TEXT
         ).pack(anchor="w", padx=20, pady=(15, 5))
+
+        # --- DEBUG: Mostrar ruta de búsqueda ---
+        debug_path_text = "Ruta de pagos (BASE_PAYPAL) no configurada."
+        is_configured = False
+        try:
+            # Usar el método de la clase Config si existe
+            if hasattr(Config, 'esta_configurado'):
+                is_configured = Config.esta_configurado()
+            # Fallback por si el método falla o no existe
+            elif hasattr(Config, 'BASE_PAYPAL') and Config.BASE_PAYPAL:
+                is_configured = True
+        except Exception:
+            pass  # Silenciar error si la clase Config es inestable
+
+        if is_configured and hasattr(Config, 'BASE_PAYPAL') and Config.BASE_PAYPAL:
+             debug_path_text = f"Buscando carpetas 'Pago #...' en: {Config.BASE_PAYPAL}"
+        
+        ctk.CTkLabel(selector_card, text=debug_path_text, font=("Roboto", 9), text_color=COLOR_TEXT_DIM, wraplength=350, justify="left").pack(anchor="w", padx=20, pady=(0,5))
+        # --- FIN DEBUG ---
+
         
         # Obtener pagos disponibles de forma segura
         numeros_disponibles = []
@@ -555,7 +601,10 @@ class PaymentApp(ctk.CTk):
                     numeros_disponibles.append(num)
                 except: continue
             numeros_disponibles.sort(reverse=True)
-        except: pass
+        except Exception as e:
+            # Mostrar el error en la interfaz para diagnóstico
+            error_msg = f"Error al leer la carpeta de pagos:\n{e}"
+            ctk.CTkLabel(selector_card, text=error_msg, text_color=COLOR_ERROR, font=("Roboto", 10), wraplength=300).pack(pady=10)
         
         if numeros_disponibles:
             self.pago_select = ctk.CTkComboBox(
@@ -627,7 +676,6 @@ class PaymentApp(ctk.CTk):
             ctk.CTkLabel(step_f, text=icon, font=("Roboto", 18)).pack(side="left", padx=(0, 10))
             ctk.CTkLabel(step_f, text=text, font=("Roboto", 11), text_color=COLOR_TEXT).pack(side="left")
 
-    
     def create_resultado_verificacion_content(self):
         """Crea la interfaz de resultados de verificación con diseño moderno y scroll"""
         self.resultado_frame = ctk.CTkFrame(self.content_frame, fg_color="transparent")
@@ -853,6 +901,8 @@ class PaymentApp(ctk.CTk):
             self.verificar_frame.pack_forget()
         if hasattr(self, 'resultado_frame'):
             self.resultado_frame.pack_forget()
+        if hasattr(self, 'config_frame'):
+            self.config_frame.pack_forget()
         
         # Mostrar el seleccionado
         if state == STATE_IDLE:
@@ -888,6 +938,15 @@ class PaymentApp(ctk.CTk):
             if not hasattr(self, 'resultado_frame'):
                 self.create_resultado_verificacion_content()
             self.resultado_frame.pack(fill="both", expand=True)
+        elif state == "config_rutas":
+            if not hasattr(self, 'config_frame'):
+                self.create_config_rutas_content()
+            # Recrear siempre para reflejar rutas actuales
+            else:
+                self.config_frame.destroy()
+                del self.config_frame
+                self.create_config_rutas_content()
+            self.config_frame.pack(fill="both", expand=True)
         
         self.current_state = state
     
@@ -1225,13 +1284,400 @@ class PaymentApp(ctk.CTk):
     
     def on_close(self):
         """Manejo del cierre de la aplicación"""
-        if self.operation_running:
-            if not messagebox.askyesno("Salir", "Hay una operación en progreso. ¿Desea salir igualmente?"):
-                return
+        try:
+            if self.operation_running:
+                if not messagebox.askyesno("Salir", "Hay una operación en progreso. ¿Desea salir igualmente?"):
+                    return
+            
+            # Si estamos en configuración obligatoria y el usuario cierra
+            if getattr(self, '_config_pendiente', False):
+                self.logger.info("Cerrando aplicación sin completar configuración.")
+            else:
+                self.logger.info("Cerrando aplicación...")
                 
-        self.logger.info("Cerrando aplicación...")
-        self.destroy()
-        sys.exit(0)
+            self.destroy()
+            sys.exit(0)
+        except Exception:
+            # En caso de error al cerrar, forzar salida
+            sys.exit(0)
+    
+    # ════════════════════════════════════════════════════════════════════
+    # CONFIGURACIÓN DE RUTAS
+    # ════════════════════════════════════════════════════════════════════
+
+    def _mostrar_config_obligatoria(self):
+        """Muestra config con mensaje de bienvenida en primera ejecución."""
+        from tkinter import messagebox as mb
+        respuesta = mb.askokcancel(
+            "Configuración inicial",
+            "Bienvenido al Sistema de Pagos PayPal.\n\n"
+            "Es necesario configurar las rutas de trabajo para que la aplicación funcione.\n\n"
+            "¿Desea configurar las rutas ahora?"
+        )
+        if not respuesta:
+            self.logger.info("El usuario canceló la configuración inicial. Cerrando...")
+            self.destroy()
+            sys.exit(0)
+            
+        self.show_state("config_rutas")
+
+    def create_config_rutas_content(self):
+        """
+        Pantalla de configuración de rutas.
+        - Rutas principales: BASE_PAYPAL y RUTA_MAESTRO
+        - Rutas PDF: lista dinámica con + Agregar / ✕ Quitar
+        """
+        self.config_frame = ctk.CTkFrame(self.content_frame, fg_color="transparent")
+
+        self.config_frame.grid_columnconfigure(0, weight=1)
+        self.config_frame.grid_rowconfigure(0, weight=1)
+
+        scroll = ctk.CTkScrollableFrame(self.config_frame, fg_color="transparent")
+        scroll.grid(row=0, column=0, sticky="nsew", padx=20, pady=20)
+        scroll.grid_columnconfigure(0, weight=1)
+
+        # ── Título ────────────────────────────────────────────────────
+        ctk.CTkLabel(
+            scroll,
+            text="⚙️  Configuración de Rutas",
+            font=("Roboto", 22, "bold"),
+            text_color=COLOR_TEXT
+        ).pack(anchor="w", padx=10, pady=(10, 4))
+
+        ctk.CTkLabel(
+            scroll,
+            text="Configure las carpetas y archivos que usará el sistema.",
+            font=("Roboto", 12),
+            text_color=COLOR_TEXT_DIM
+        ).pack(anchor="w", padx=10, pady=(0, 20))
+
+        # ── Card: Rutas principales ───────────────────────────────────
+        card_principal = ctk.CTkFrame(
+            scroll, fg_color=COLOR_ACCENT_LIGHT, corner_radius=12
+        )
+        card_principal.pack(fill="x", padx=10, pady=(0, 16))
+        card_principal.grid_columnconfigure(0, weight=1)
+
+        ctk.CTkLabel(
+            card_principal,
+            text="📁  Rutas Principales",
+            font=("Roboto", 14, "bold"),
+            text_color=COLOR_TEXT
+        ).pack(anchor="w", padx=20, pady=(16, 8))
+
+        # Variables para rutas principales
+        rutas_actuales = self.configurador.obtener_rutas() or {}
+
+        self._var_base_paypal = ctk.StringVar(
+            value=str(rutas_actuales.get("base_paypal", ""))
+        )
+        self._var_maestro = ctk.StringVar(
+            value=str(rutas_actuales.get("ruta_maestro", ""))
+        )
+
+        self._crear_campo_ruta(
+            card_principal,
+            "Carpeta BASE PAYPAL",
+            self._var_base_paypal,
+            es_archivo=False
+        )
+        self._crear_campo_ruta(
+            card_principal,
+            "Archivo MAESTRO (.xlsm)",
+            self._var_maestro,
+            es_archivo=True,
+            filetypes=[("Excel con macros", "*.xlsm"), ("Excel", "*.xlsx")]
+        )
+
+        # Espaciado inferior de la card
+        ctk.CTkLabel(card_principal, text="", height=8, fg_color="transparent").pack()
+
+        # ── Card: Rutas PDF dinámicas ─────────────────────────────────
+        card_pdf = ctk.CTkFrame(
+            scroll, fg_color=COLOR_ACCENT_LIGHT, corner_radius=12
+        )
+        card_pdf.pack(fill="x", padx=10, pady=(0, 16))
+
+        ctk.CTkLabel(
+            card_pdf,
+            text="📄  Rutas de Búsqueda de PDFs (OneDrive)",
+            font=("Roboto", 14, "bold"),
+            text_color=COLOR_TEXT
+        ).pack(anchor="w", padx=20, pady=(16, 4))
+
+        ctk.CTkLabel(
+            card_pdf,
+            text="Agrega todas las carpetas de OneDrive donde el sistema buscará facturas y guías.",
+            font=("Roboto", 11),
+            text_color=COLOR_TEXT_DIM,
+            wraplength=700,
+            justify="left"
+        ).pack(anchor="w", padx=20, pady=(0, 12))
+
+        # Contenedor scrollable para los ítems PDF
+        self._pdf_container = ctk.CTkFrame(card_pdf, fg_color="transparent")
+        self._pdf_container.pack(fill="x", padx=20, pady=(0, 8))
+
+        # Lista interna: cada elemento = (frame_item, StringVar)
+        self._pdf_vars: list = []
+
+        # Cargar rutas existentes
+        rutas_pdf_existentes = rutas_actuales.get("rutas_pdf", [])
+        if rutas_pdf_existentes:
+            for ruta in rutas_pdf_existentes:
+                self._agregar_fila_pdf(str(ruta))
+        else:
+            # Siempre al menos una fila vacía
+            self._agregar_fila_pdf("")
+
+        # Botón agregar
+        ctk.CTkButton(
+            card_pdf,
+            text="＋  Agregar ruta PDF",
+            command=lambda: self._agregar_fila_pdf(""),
+            fg_color="transparent",
+            border_color=COLOR_PRIMARY,
+            border_width=1,
+            text_color=COLOR_PRIMARY,
+            hover_color=COLOR_ACCENT,
+            font=("Roboto", 12, "bold"),
+            height=36,
+            width=220
+        ).pack(anchor="w", padx=20, pady=(4, 16))
+
+        # ── Botones de acción ─────────────────────────────────────────
+        btn_frame = ctk.CTkFrame(scroll, fg_color="transparent")
+        btn_frame.pack(fill="x", padx=10, pady=(8, 20))
+
+        ctk.CTkButton(
+            btn_frame,
+            text="💾  Guardar Configuración",
+            command=self._guardar_config_rutas,
+            fg_color=COLOR_PRIMARY,
+            hover_color=("#060D6F", "#4A52A7"),
+            font=("Roboto", 13, "bold"),
+            height=46
+        ).pack(side="left", fill="x", expand=True, padx=(0, 8))
+
+        # Botón volver solo si ya hay config previa
+        is_configured = False
+        try:
+            if hasattr(Config, 'esta_configurado'):
+                is_configured = Config.esta_configurado()
+            else:
+                # Fallback por si hay problemas con la clase Config
+                is_configured = (Config.BASE_PAYPAL is not None and 
+                                Config.RUTA_MAESTRO is not None)
+        except:
+            is_configured = False
+
+        if is_configured:
+            ctk.CTkButton(
+                btn_frame,
+                text="↩️  Cancelar",
+                command=lambda: self.show_state(STATE_IDLE),
+                fg_color="transparent",
+                border_color=COLOR_ACCENT_LIGHT,
+                border_width=1,
+                text_color=COLOR_TEXT_DIM,
+                hover_color=COLOR_ACCENT_LIGHT,
+                font=("Roboto", 13, "bold"),
+                height=46
+            ).pack(side="left", fill="x", expand=True, padx=(8, 0))
+
+    def _crear_campo_ruta(
+        self, parent, label: str, var: ctk.StringVar,
+        es_archivo: bool = False, filetypes: list = None
+    ):
+        """Crea un campo de texto + botón Buscar para una ruta."""
+        frame = ctk.CTkFrame(parent, fg_color="transparent")
+        frame.pack(fill="x", padx=20, pady=6)
+
+        ctk.CTkLabel(
+            frame,
+            text=label,
+            font=("Roboto", 11, "bold"),
+            text_color=COLOR_TEXT_DIM
+        ).pack(anchor="w", pady=(0, 4))
+
+        row = ctk.CTkFrame(frame, fg_color="transparent")
+        row.pack(fill="x")
+        row.grid_columnconfigure(0, weight=1)
+
+        entry = ctk.CTkEntry(
+            row,
+            textvariable=var,
+            font=("Roboto", 11),
+            height=36,
+            fg_color=COLOR_ACCENT,
+            border_color=COLOR_ACCENT_LIGHT,
+            text_color=COLOR_TEXT
+        )
+        entry.grid(row=0, column=0, sticky="ew", padx=(0, 8))
+
+        def _buscar():
+            from tkinter import filedialog
+            if es_archivo:
+                ft = filetypes or [("Todos", "*.*")]
+                path = filedialog.askopenfilename(filetypes=ft)
+            else:
+                path = filedialog.askdirectory()
+            if path:
+                var.set(path)
+
+        ctk.CTkButton(
+            row,
+            text="Buscar...",
+            command=_buscar,
+            width=90,
+            height=36,
+            fg_color=COLOR_ACCENT_LIGHT,
+            text_color=COLOR_TEXT,
+            hover_color=COLOR_BORDE if hasattr(self, 'COLOR_BORDE') else "#D0D0D0",
+            font=("Roboto", 11)
+        ).grid(row=0, column=1)
+
+    def _agregar_fila_pdf(self, valor_inicial: str = ""):
+        """Agrega una fila dinámica para una ruta PDF en la lista."""
+        var = ctk.StringVar(value=valor_inicial)
+
+        fila = ctk.CTkFrame(self._pdf_container, fg_color=COLOR_ACCENT, corner_radius=8)
+        fila.pack(fill="x", pady=4)
+        fila.grid_columnconfigure(0, weight=1)
+
+        # Número de orden
+        num = len(self._pdf_vars) + 1
+        ctk.CTkLabel(
+            fila,
+            text=f"#{num}",
+            font=("Roboto", 11, "bold"),
+            text_color=COLOR_TEXT_DIM,
+            width=28
+        ).grid(row=0, column=0, sticky="w", padx=(10, 4), pady=8)
+
+        entry = ctk.CTkEntry(
+            fila,
+            textvariable=var,
+            font=("Roboto", 11),
+            height=34,
+            fg_color="white",
+            border_color=COLOR_ACCENT_LIGHT,
+            text_color=COLOR_TEXT,
+            placeholder_text="Ruta de carpeta OneDrive..."
+        )
+        entry.grid(row=0, column=0, sticky="ew", padx=(40, 8), pady=8)
+
+        def _buscar_pdf():
+            from tkinter import filedialog
+            path = filedialog.askdirectory(title="Seleccionar carpeta de PDFs")
+            if path:
+                var.set(path)
+
+        ctk.CTkButton(
+            fila,
+            text="Buscar...",
+            command=_buscar_pdf,
+            width=85,
+            height=34,
+            fg_color=COLOR_ACCENT_LIGHT,
+            text_color=COLOR_TEXT,
+            font=("Roboto", 11)
+        ).grid(row=0, column=1, padx=(0, 4), pady=8)
+
+        def _quitar(f=fila, v=var):
+            """Elimina esta fila de la lista."""
+            f.destroy()
+            if v in [item[1] for item in self._pdf_vars]:
+                self._pdf_vars = [item for item in self._pdf_vars if item[1] is not v]
+            self._renumerar_filas_pdf()
+
+        ctk.CTkButton(
+            fila,
+            text="✕",
+            command=_quitar,
+            width=34,
+            height=34,
+            fg_color="transparent",
+            border_color=COLOR_ERROR,
+            border_width=1,
+            text_color=COLOR_ERROR,
+            hover_color="#FFEBEE",
+            font=("Roboto", 12, "bold")
+        ).grid(row=0, column=2, padx=(0, 10), pady=8)
+
+        self._pdf_vars.append((fila, var))
+
+    def _renumerar_filas_pdf(self):
+        """Actualiza los números de orden tras eliminar una fila."""
+        for i, (fila, _) in enumerate(self._pdf_vars):
+            # El primer child del frame es el Label de número
+            for child in fila.winfo_children():
+                if isinstance(child, ctk.CTkLabel) and child.cget("width") == 28:
+                    child.configure(text=f"#{i + 1}")
+                    break
+
+    def _guardar_config_rutas(self):
+        """Valida y persiste la configuración de rutas."""
+        from tkinter import messagebox as mb
+
+        base = self._var_base_paypal.get().strip()
+        maestro = self._var_maestro.get().strip()
+
+        # Recolectar rutas PDF no vacías
+        rutas_pdf = [
+            var.get().strip()
+            for _, var in self._pdf_vars
+            if var.get().strip()
+        ]
+
+        # Validación básica de campos obligatorios
+        if not base or not maestro:
+            mb.showerror(
+                "Campos requeridos",
+                "La carpeta BASE PAYPAL y el archivo MAESTRO son obligatorios."
+            )
+            return
+
+        if not rutas_pdf:
+            mb.showerror(
+                "Rutas PDF requeridas",
+                "Agrega al menos una ruta de búsqueda de PDFs."
+            )
+            return
+
+        # Advertencia si alguna ruta no existe (puede ser red desconectada)
+        rutas_inexistentes = []
+        from pathlib import Path as _Path
+        if not _Path(base).exists():
+            rutas_inexistentes.append(f"• BASE PAYPAL: {base}")
+        if not _Path(maestro).exists():
+            rutas_inexistentes.append(f"• MAESTRO: {maestro}")
+        for r in rutas_pdf:
+            if not _Path(r).exists():
+                rutas_inexistentes.append(f"• PDF: {r}")
+
+        if rutas_inexistentes:
+            detalle = "\n".join(rutas_inexistentes)
+            continuar = mb.askyesno(
+                "Rutas no encontradas",
+                f"Las siguientes rutas no son accesibles ahora:\n\n{detalle}\n\n"
+                "¿Desea guardar de todas formas?\n"
+                "(Puede ser una unidad de red temporalmente desconectada)"
+            )
+            if not continuar:
+                return
+
+        # Guardar
+        ok = self.configurador.guardar_config(base, maestro, rutas_pdf)
+        if not ok:
+            mb.showerror("Error", "No se pudo guardar la configuración.")
+            return
+
+        # Inyectar en Config
+        Config.cargar_desde_ini(self.configurador.obtener_rutas())
+
+        mb.showinfo("Guardado", "✅ Configuración guardada correctamente.")
+        self.show_state(STATE_IDLE)
 
 
 def main():

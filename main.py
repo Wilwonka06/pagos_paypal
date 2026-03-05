@@ -1,8 +1,3 @@
-"""
-Sistema de Automatización de Pagos PayPal
-Integra SAP, Excel, PDFs y gestión de carpetas
-"""
-
 import os
 import sys
 import time
@@ -32,45 +27,52 @@ from selenium.common.exceptions import TimeoutException, NoSuchElementException
 # ============================================================================
 
 class Config:
-    """Configuración centralizada del sistema"""
-    
-    # Rutas principales
-    BASE_PAYPAL = Path(r"C:\Finanzas\Info Bancos\Pagos Internacionales\PAYPAL")
-    RUTA_DESCARGAS = Path.home() / "Downloads"
-    RUTA_MAESTRO = BASE_PAYPAL / "COURIER" / "A_Aplicación" / "Courier Internacional - Reporte Cambiario.xlsm"
-    
-    # Rutas de búsqueda de PDFs
-    RUTAS_PDF = [
-        Path(r"C:\Users\auxconmepa1\GCO\Marco Esteban Escobar Bedoya - Facturas y Guias LATAM Americanino 2025"),
-        Path(r"C:\Users\auxconmepa1\GCO\Marco Esteban Escobar Bedoya - Facturas y Guias LATAM Esprit 2025"),
-        Path(r"C:\Users\auxconmepa1\GCO\Marco Esteban Escobar Bedoya - Facturas y Guias LATAM Americanino 2026"),
-        Path(r"C:\Users\auxconmepa1\GCO\Marco Esteban Escobar Bedoya - Facturas y Guias LATAM Esprit 2026")
-    ]
-    # Configuración SAP
-    SAP_URL = "https://saps4h.gco.com.co/sap/bc/gui/sap/its/webgui/?sap-client=300&sap-language=ES"
-    SAP_USER = "AUXCONMEPA1"
-    SAP_PASSWORD = "auxilarMP01*"
+    """
+    Configuración centralizada del sistema.
+    Las rutas ya NO están hardcodeadas — se cargan desde config_paypal.ini
+    mediante Config.cargar_desde_ini(rutas_dict) al iniciar la app.
+    """
+
+    # Rutas — se populan en tiempo de ejecución desde el .ini
+    BASE_PAYPAL:    Path = None
+    RUTA_MAESTRO:   Path = None
+    RUTAS_PDF:      list = []
+    RUTA_DESCARGAS: Path = Path.home() / "Downloads"
+
+    SAP_URL         = "https://saps4h.gco.com.co/sap/bc/gui/sap/its/webgui/?sap-client=300&sap-language=ES"
+    SAP_USER        = "AUXCONMEPA1"
+    SAP_PASSWORD    = "auxilarMP01*"
     SAP_TRANSACCION = "FAGLL03"
-    SAP_CUENTA = "4250060005"
-    SAP_SOCIEDAD = "1000"
-    
-    # Configuración de Excel
+    SAP_CUENTA      = "4250060005"
+    SAP_SOCIEDAD    = "1000"
+
     HOJA_MAESTRO = "Soporte Formulario"
-        
-    # Columnas del Excel (Orden exacto basado en el archivo Maestro)
+
     COLUMNAS_SEGUNDA_HOJA = [
         "Date", "Currency", "Gross", "Fee", "Net",
         "Prorrateo Disputa", "Prorrateo Normal", "Neto despues de prorrateo",
         "Flete", "Valor mcia",
-        "Invoice Numbers", "Número guía", "Fecha del envío", 
+        "Invoice Numbers", "Número guía", "Fecha del envío",
         "Order Id Paypal", "Fecha_pago",
         "Valoración flete", "Diferencia", "Observaciones"
     ]
-    
-    # Timeouts
-    TIMEOUT_SAP = 30
+
+    # Timeouts — sin cambios
+    TIMEOUT_SAP      = 30
     TIMEOUT_DOWNLOAD = 60
     ACTIVAR_LOG_ARCHIVO = False
+
+    @classmethod
+    def cargar_desde_ini(cls, rutas: dict) -> None:
+        cls.BASE_PAYPAL  = rutas["base_paypal"]
+        cls.RUTA_MAESTRO = rutas["ruta_maestro"]
+        cls.RUTAS_PDF    = rutas["rutas_pdf"]
+
+    @classmethod
+    def esta_configurado(cls) -> bool:
+        """Verifica que las rutas esenciales estén cargadas."""
+        # Comprobación de rutas
+        return cls.BASE_PAYPAL is not None and cls.RUTA_MAESTRO is not None
 
 # ============================================================================
 # CONFIGURACIÓN DE LOGGING
@@ -712,10 +714,22 @@ class ProcesadorExcel:
             columnas_fecha = ["Date", "Fecha del envío", "Fecha_pago"]
             for col in columnas_fecha:
                 if col in df_final.columns:
-                    # Convertir a datetime y luego a string con formato DD/MM/YYYY para evitar horas en Excel
-                    df_final[col] = pd.to_datetime(df_final[col], errors='coerce').dt.strftime('%d/%m/%Y')
-                    # Reemplazar 'NaT' (resultado de errores en to_datetime) por None o vacío
-                    df_final[col] = df_final[col].replace('NaT', None)
+                    def _formatear_fecha_segura(val):
+                        if pd.isna(val) or str(val).strip() == "":
+                            return ""
+                        try:
+                            if isinstance(val, (pd.Timestamp, datetime)):
+                                return val.strftime('%d/%m/%Y')
+                            
+                            dt = pd.to_datetime(val, dayfirst=True, errors='coerce')
+                            if pd.notna(dt):
+                                return dt.strftime('%d/%m/%Y')
+                            
+                            return str(val).strip()
+                        except:
+                            return str(val).strip()
+
+                    df_final[col] = df_final[col].apply(_formatear_fecha_segura)
             
             # Detectar registros de "Próximo pago"
             # Un registro es parcial si Net > 0 pero Gross y Fee están vacíos/nulos
@@ -835,12 +849,19 @@ class ProcesadorExcel:
             df_proximos = df_segunda_hoja[df_segunda_hoja['Observaciones'] == 'Proximo pago'].copy()
 
             # 1. Guardar el DataFrame con pandas (solo los datos base)
+            # Asegurar que los IDs sean tratados como texto antes de guardar
+            for col in ["Order Id Paypal", "Invoice Numbers", "Número guía"]:
+                if col in df_normales.columns:
+                    df_normales[col] = df_normales[col].astype(str).replace(['nan', 'None', ''], "")
+                if col in df_proximos.columns:
+                    df_proximos[col] = df_proximos[col].astype(str).replace(['nan', 'None', ''], "")
+
             with pd.ExcelWriter(archivo, engine='openpyxl', mode='a', if_sheet_exists='replace') as writer:
-                df_normales.to_excel(writer, sheet_name='Reporte Procesado', index=False)
+                df_normales.to_excel(writer, sheet_name='Validación', index=False)
             
             # 2. Reabrir con openpyxl para insertar fórmulas, totales y registros parciales
             wb = load_workbook(archivo)
-            ws = wb['Reporte Procesado']
+            ws = wb['Validación']
             
             # Identificar índices de columnas
             headers = [cell.value for cell in ws[1]]
@@ -885,7 +906,11 @@ class ProcesadorExcel:
                     for col_idx, header in enumerate(headers, 1):
                         val = row.get(header)
                         if pd.notna(val):
-                            ws.cell(row=current_row, column=col_idx).value = val
+                            # Si es uno de los IDs, forzarlo como string para evitar notación científica
+                            if header in ["Order Id Paypal", "Invoice Numbers", "Número guía"]:
+                                ws.cell(row=current_row, column=col_idx).value = str(val)
+                            else:
+                                ws.cell(row=current_row, column=col_idx).value = val
                     # Asegurar que diga "Proximo pago" al final si corresponde
                     if idx_observaciones:
                         ws.cell(row=current_row, column=idx_observaciones).value = "Proximo pago"
@@ -1076,13 +1101,28 @@ class GestorPDFs:
             self.logger.info(f"Iniciando flujo de soportes para {total_procesar} registros...")
             
             for idx, row in df.iterrows():
-                # Si el registro ya está marcado como "Proximo pago", lo saltamos
-                if str(row.get('Observaciones', '')).strip() == "Proximo pago":
-                    self.logger.info(f"Saltando registro {idx} (marcado como Proximo pago)")
+                # Limpiar valores para detectar si la fila está realmente vacía
+                def _limpiar(val):
+                    v = str(val).strip().lower()
+                    return "" if v in ["nan", "none", ""] else str(val).strip()
+
+                obs_original = _limpiar(row.get('Observaciones', ''))
+                invoice_val = _limpiar(row.get(col_invoices, ''))
+                guia_val = _limpiar(row.get(col_guias, ''))
+                
+                # Si la fila está vacía (posible fila de separación), no procesar
+                if not invoice_val and not guia_val and not obs_original:
+                    self.logger.info(f"Saltando registro {idx} (fila vacía de separación)")
                     continue
 
-                invoice_val = str(row[col_invoices]).strip()
-                guia_val = str(row.get(col_guias, "")).strip()
+                # Caso especial: Próximo pago se mantiene tal cual y se salta
+                if obs_original == "Proximo pago":
+                    self.logger.info(f"Saltando registro {idx} (marcado como Proximo pago)")
+                    continue
+                
+                # el estado real de los soportes en este pago
+                if obs_original and obs_original.lower() != 'soportes ok':
+                    self.logger.info(f"Ignorando observación previa '{obs_original}' para verificar soportes.")
                 
                 # --- FASE 1: BUSCAR Y COPIAR TODO ---
                 documentos_encontrados = []

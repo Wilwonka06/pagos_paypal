@@ -119,33 +119,59 @@ class VerificadorActualizadorSoportes:
             return []
     
     def leer_segunda_hoja_excel(self, archivo_excel: Path) -> Optional[pd.DataFrame]:
-        """Lee la segunda hoja del Excel (Reporte Procesado) con dtype object para evitar truncamiento de IDs"""
+        """Lee la segunda hoja del Excel (Validación o Validación Nataly)"""
         try:
             # Intentar obtener los nombres de las hojas primero
             xl = pd.ExcelFile(archivo_excel)
             hojas = xl.sheet_names
             
-            # Nombre esperado
-            nombre_esperado = 'Reporte Procesado'
+            # Lista de nombres posibles para la hoja procesada
+            nombres_posibles = ['Validación', 'Validación Nataly']
+            nombre_final = None
             
-            if nombre_esperado in hojas:
-                df = pd.read_excel(archivo_excel, sheet_name=nombre_esperado, engine='openpyxl', dtype=object)
+            # Buscar si alguno de los nombres existe en el archivo
+            for nombre in nombres_posibles:
+                if nombre in hojas:
+                    nombre_final = nombre
+                    break
+            
+            if nombre_final:
+                df = pd.read_excel(archivo_excel, sheet_name=nombre_final, engine='openpyxl', dtype=object)
             elif len(hojas) >= 2:
-                # Si no existe el nombre, pero hay al menos 2 hojas, intentar con la segunda hoja por índice
-                self.logger.warning(f"No se encontró la hoja '{nombre_esperado}'. Intentando con la segunda hoja: '{hojas[1]}'")
+                # Si no existe ninguno de los nombres, pero hay al menos 2 hojas, intentar con la segunda hoja por índice
+                self.logger.warning(f"No se encontró ninguna de las hojas {nombres_posibles}. Intentando con la segunda hoja: '{hojas[1]}'")
                 df = pd.read_excel(archivo_excel, sheet_name=1, engine='openpyxl', dtype=object)
             else:
                 self.logger.error(f"El archivo Excel {archivo_excel.name} solo tiene una hoja: {hojas}. Se requieren al menos 2.")
                 return None
 
-            # CORRECCIÓN DE FECHAS: Asegurar formato dd/mm/aaaa y quitar horas
+            # Guardar el nombre de la hoja leída para usarlo al guardar
+            self._ultima_hoja_leida = nombre_final or (hojas[1] if len(hojas) >= 2 else None)
+
+            # CORRECCIÓN DE FECHAS: Asegurar formato dd/mm/aaaa y quitar horas de forma segura
             columnas_fecha = ["Date", "Fecha del envío", "Fecha_pago"]
             for col in columnas_fecha:
                 if col in df.columns:
-                    # Convertir a datetime y luego a string con formato dd/mm/yyyy
-                    df[col] = pd.to_datetime(df[col], errors='coerce').dt.strftime('%d/%m/%Y')
-                    # Reemplazar 'NaT' por vacío
-                    df[col] = df[col].replace('NaT', "")
+                    def _formatear_fecha_segura(val):
+                        if pd.isna(val) or str(val).strip() == "":
+                            return ""
+                        try:
+                            # Si ya es un objeto de fecha/tiempo
+                            if isinstance(val, (pd.Timestamp, datetime)):
+                                return val.strftime('%d/%m/%Y')
+                            
+                            # Si es un string, intentar parsear
+                            # Usamos dayfirst=True para el formato dd/mm/yyyy común en sus archivos
+                            dt = pd.to_datetime(val, dayfirst=True, errors='coerce')
+                            if pd.notna(dt):
+                                return dt.strftime('%d/%m/%Y')
+                            
+                            # Si no se pudo parsear, devolver el valor original como string
+                            return str(val).strip()
+                        except:
+                            return str(val).strip()
+
+                    df[col] = df[col].apply(_formatear_fecha_segura)
 
             self.logger.info(f"Se leyeron {len(df)} registros de {archivo_excel.name} (fechas corregidas)")
             return df
@@ -296,9 +322,14 @@ class VerificadorActualizadorSoportes:
     
     def analizar_observaciones_registro(self, row: pd.Series) -> Dict:
         """Analiza qué documentos faltan según las observaciones"""
-        observaciones = str(row.get('Observaciones', '')).strip()
-        invoice = str(row.get('Invoice Numbers', '')).strip()
-        guia = str(row.get('Número guía', '')).strip()
+        # Limpiar valores para detectar si la fila está realmente vacía
+        def _limpiar(val):
+            v = str(val).strip().lower()
+            return "" if v in ["nan", "none", ""] else str(val).strip()
+
+        observaciones = _limpiar(row.get('Observaciones', ''))
+        invoice = _limpiar(row.get('Invoice Numbers', ''))
+        guia = _limpiar(row.get('Número guía', ''))
         
         resultado = {
             'falta_factura': False,
@@ -306,14 +337,24 @@ class VerificadorActualizadorSoportes:
             'observacion_original': observaciones,
             'invoice': invoice,
             'guia': guia,
-            'corregir_excel': False # Flag para forzar guardado si se corrigieron fechas
+            'corregir_excel': False,
+            'es_fila_vacia': not invoice and not guia and not observaciones
         }
         
+        # Si la fila está vacía (posible fila de separación), no procesar
+        if resultado['es_fila_vacia']:
+            return resultado
+
         if not observaciones or observaciones.lower() == 'soportes ok':
             return resultado
         
+        # Caso especial: Próximo pago se mantiene tal cual
+        if observaciones == "Proximo pago":
+            return resultado
+
         obs_lower = observaciones.lower()
         
+        # Si la observación dice qué falta, lo marcamos
         if 'falta' in obs_lower:
             if 'factura' in obs_lower:
                 resultado['falta_factura'] = True
@@ -322,6 +363,12 @@ class VerificadorActualizadorSoportes:
             if 'ambos' in obs_lower:
                 resultado['falta_factura'] = True
                 resultado['falta_guia'] = True
+        else:
+            # Si tiene una observación desconocida (como 'BANREP'), 
+            # asumimos que ambos documentos faltan para poder verificarlos de nuevo
+            resultado['falta_factura'] = True
+            resultado['falta_guia'] = True
+            self.logger.info(f"Observación desconocida '{observaciones}' tratada como 'Faltan ambos documentos'")
         
         return resultado
     
@@ -374,14 +421,22 @@ class VerificadorActualizadorSoportes:
             
             self.logger.info(f"Guardando cambios en {archivo_excel.name}...")
             
+            # Asegurar que los IDs sean tratados como texto antes de guardar
+            for col in ["Order Id Paypal", "Invoice Numbers", "Número guía"]:
+                if col in df_actualizado.columns:
+                    df_actualizado[col] = df_actualizado[col].astype(str).replace(['nan', 'None', ''], "")
+
+            # Usar el nombre de la hoja que se leyó originalmente
+            nombre_hoja = getattr(self, '_ultima_hoja_leida', 'Validación')
+            
             # Guardar con pandas
             with pd.ExcelWriter(archivo_excel, engine='openpyxl', mode='a', 
                                if_sheet_exists='replace') as writer:
-                df_actualizado.to_excel(writer, sheet_name='Reporte Procesado', index=False)
+                df_actualizado.to_excel(writer, sheet_name=nombre_hoja, index=False)
             
             # Aplicar estilos con openpyxl
             wb = load_workbook(archivo_excel)
-            ws = wb['Reporte Procesado']
+            ws = wb[nombre_hoja]
             
             # Estilo cabecera
             color_fondo = PatternFill(start_color='69E2FF', end_color='69E2FF', fill_type='solid')
