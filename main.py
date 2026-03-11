@@ -34,6 +34,7 @@ class Config:
     """
 
     # Rutas — se populan en tiempo de ejecución desde el .ini
+    RAIZ_SWIFT_LATAM: Path = None
     BASE_PAYPAL:    Path = None
     RUTA_MAESTRO:   Path = None
     RUTAS_PDF:      list = []
@@ -67,6 +68,7 @@ class Config:
         cls.BASE_PAYPAL  = rutas["base_paypal"]
         cls.RUTA_MAESTRO = rutas["ruta_maestro"]
         cls.RUTAS_PDF    = rutas["rutas_pdf"]
+        cls.RAIZ_SWIFT_LATAM = rutas["raiz_swift_latam"]
 
     @classmethod
     def esta_configurado(cls) -> bool:
@@ -81,7 +83,6 @@ class Config:
 def configurar_logging():
     """Configura el sistema de logging"""
     try:
-        # Forzar UTF-8 en stdout para evitar errores con emojis en Windows
         import io
         if sys.stdout.encoding != 'utf-8':
             sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
@@ -962,11 +963,40 @@ class ProcesadorExcel:
 # FASE 4: GESTIÓN DE PDFs
 # ============================================================================
 
+_MESES_ES = [
+    "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
+    "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"
+]
+
+def resolver_rutas_swift_dinamicas(raiz: Path) -> list:
+    """
+    Recorre raiz/AÑO/Mes desde 2024 en adelante y devuelve
+    todas las subcarpetas de mes que existan.
+    """
+    if not raiz or not raiz.exists():
+        return []
+
+    rutas = []
+    año_actual = datetime.now().year
+
+    for año in range(2024, año_actual + 1):
+        carpeta_año = raiz / str(año)
+        if not carpeta_año.exists():
+            continue
+        for mes in _MESES_ES:
+            carpeta_mes = carpeta_año / mes
+            if carpeta_mes.exists():
+                rutas.append(carpeta_mes)
+
+    return rutas
+
+
 class GestorPDFs:
     """Maneja búsqueda, extracción y validación de PDFs"""
     
-    def __init__(self, rutas_busqueda: List[Path]):
-        self.rutas_busqueda = rutas_busqueda
+    def __init__(self, rutad_pdf: List[Path]):
+        rutas_dinamicas = resolver_rutas_swift_dinamicas(self.RAIZ_SWIFT_LATAM)
+        self.rutad_pdf = rutas_dinamicas if rutas_dinamicas else rutad_pdf
         self.logger = logging.getLogger(__name__)
     
     def buscar_documentos_por_patron(self, dato_columna: str, prefijo: str = "") -> List[Path]:
@@ -995,7 +1025,7 @@ class GestorPDFs:
             self.logger.info(f"Buscando documentos con patrones: {', '.join(terminos_busqueda)}...")
             
             for termino in terminos_busqueda:
-                for ruta in self.rutas_busqueda:
+                for ruta in self.rutad_pdf:
                     if not ruta.exists():
                         continue
                     

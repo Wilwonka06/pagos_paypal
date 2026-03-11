@@ -15,8 +15,7 @@ from main import (
 )
 
 # NUEVO: Importar verificador/actualizador
-from verificacion import VerificadorActualizadorSoportes, ResultadoVerificacion
-
+from scripts.verificacion import VerificadorActualizadorSoportes, ResultadoVerificacion
 
 # Configuración de tema y colores
 ctk.set_appearance_mode("light")
@@ -1583,6 +1582,10 @@ class PaymentApp(ctk.CTk):
             value=str(rutas_actuales.get("ruta_maestro", ""))
         )
 
+        self.var_raiz_swift = ctk.StringVar(
+            value=str(rutas_actuales.get("raiz_swift_latam", ""))
+        )
+
         self._crear_campo_ruta(
             card_principal,
             "Carpeta BASE PAYPAL",
@@ -1596,62 +1599,15 @@ class PaymentApp(ctk.CTk):
             es_archivo=True,
             filetypes=[("Excel con macros", "*.xlsm"), ("Excel", "*.xlsx")]
         )
+        self._crear_campo_ruta(
+            card_principal,
+            "Raíz de Swift Latam",
+            self.var_raiz_swift,
+            es_archivo=False
+        )
 
         # Espaciado inferior de la card
         ctk.CTkLabel(card_principal, text="", height=8, fg_color="transparent").pack()
-
-        # ── Card: Rutas PDF dinámicas ─────────────────────────────────
-        card_pdf = ctk.CTkFrame(
-            scroll, fg_color=COLOR_ACCENT_LIGHT, corner_radius=12
-        )
-        card_pdf.pack(fill="x", padx=10, pady=(0, 16))
-
-        ctk.CTkLabel(
-            card_pdf,
-            text="📄  Rutas de Búsqueda de PDFs (OneDrive)",
-            font=("Roboto", 14, "bold"),
-            text_color=COLOR_TEXT
-        ).pack(anchor="w", padx=20, pady=(16, 4))
-
-        ctk.CTkLabel(
-            card_pdf,
-            text="Agrega todas las carpetas de OneDrive donde el sistema buscará facturas y guías.",
-            font=("Roboto", 11),
-            text_color=COLOR_TEXT_DIM,
-            wraplength=700,
-            justify="left"
-        ).pack(anchor="w", padx=20, pady=(0, 12))
-
-        # Contenedor scrollable para los ítems PDF
-        self._pdf_container = ctk.CTkFrame(card_pdf, fg_color="transparent")
-        self._pdf_container.pack(fill="x", padx=20, pady=(0, 8))
-
-        # Lista interna: cada elemento = (frame_item, StringVar)
-        self._pdf_vars: list = []
-
-        # Cargar rutas existentes
-        rutas_pdf_existentes = rutas_actuales.get("rutas_pdf", [])
-        if rutas_pdf_existentes:
-            for ruta in rutas_pdf_existentes:
-                self._agregar_fila_pdf(str(ruta))
-        else:
-            # Siempre al menos una fila vacía
-            self._agregar_fila_pdf("")
-
-        # Botón agregar
-        ctk.CTkButton(
-            card_pdf,
-            text="＋  Agregar ruta PDF",
-            command=lambda: self._agregar_fila_pdf(""),
-            fg_color="transparent",
-            border_color=COLOR_PRIMARY,
-            border_width=1,
-            text_color=COLOR_PRIMARY,
-            hover_color=COLOR_ACCENT,
-            font=("Roboto", 12, "bold"),
-            height=36,
-            width=220
-        ).pack(anchor="w", padx=20, pady=(4, 16))
 
         # ── Botones de acción ─────────────────────────────────────────
         btn_frame = ctk.CTkFrame(scroll, fg_color="transparent")
@@ -1693,10 +1649,7 @@ class PaymentApp(ctk.CTk):
                 height=46
             ).pack(side="left", fill="x", expand=True, padx=(8, 0))
 
-    def _crear_campo_ruta(
-        self, parent, label: str, var: ctk.StringVar,
-        es_archivo: bool = False, filetypes: list = None
-    ):
+    def _crear_campo_ruta(self, parent, label: str, var: ctk.StringVar, es_archivo: bool = False, filetypes: list = None):
         """Crea un campo de texto + botón Buscar para una ruta."""
         frame = ctk.CTkFrame(parent, fg_color="transparent")
         frame.pack(fill="x", padx=20, pady=6)
@@ -1831,25 +1784,11 @@ class PaymentApp(ctk.CTk):
         base = self._var_base_paypal.get().strip()
         maestro = self._var_maestro.get().strip()
 
-        # Recolectar rutas PDF no vacías
-        rutas_pdf = [
-            var.get().strip()
-            for _, var in self._pdf_vars
-            if var.get().strip()
-        ]
-
         # Validación básica de campos obligatorios
         if not base or not maestro:
             mb.showerror(
                 "Campos requeridos",
                 "La carpeta BASE PAYPAL y el archivo MAESTRO son obligatorios."
-            )
-            return
-
-        if not rutas_pdf:
-            mb.showerror(
-                "Rutas PDF requeridas",
-                "Agrega al menos una ruta de búsqueda de PDFs."
             )
             return
 
@@ -1860,9 +1799,6 @@ class PaymentApp(ctk.CTk):
             rutas_inexistentes.append(f"• BASE PAYPAL: {base}")
         if not _Path(maestro).exists():
             rutas_inexistentes.append(f"• MAESTRO: {maestro}")
-        for r in rutas_pdf:
-            if not _Path(r).exists():
-                rutas_inexistentes.append(f"• PDF: {r}")
 
         if rutas_inexistentes:
             detalle = "\n".join(rutas_inexistentes)
@@ -1876,7 +1812,7 @@ class PaymentApp(ctk.CTk):
                 return
 
         # Guardar
-        ok = self.configurador.guardar_config(base, maestro, rutas_pdf)
+        ok = self.configurador.guardar_config(base, maestro, rutas_pdf= [], raiz_swift_latam = self.var_raiz_swift.get().strip())
         if not ok:
             mb.showerror("Error", "No se pudo guardar la configuración.")
             return

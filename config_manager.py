@@ -27,34 +27,34 @@ class ConfiguradorRutasPayPal:
 
     def obtener_rutas(self) -> Optional[dict]:
         """Obtiene las rutas configuradas en el archivo .ini."""
-        if "RUTAS_PRINCIPALES" not in self.config:
+        if 'RUTAS_PRINCIPALES' not in self.config:
             return None
-
-        rutas_pdf = []
-        if "RUTAS_PDF" in self.config:
-            total = int(self.config["RUTAS_PDF"].get("total", "0"))
+        
+        rutas_pdf= []
+        if 'RUTAS_PDF' in self.config:
+            total = int(self.config['RUTAS_PDF'].get('total', '0'))
             for i in range(total):
-                val = self.config["RUTAS_PDF"].get(f"ruta_{i}", "").strip()
+                val = self.config['RUTAS_PDF'].get(f'ruta_{i}', '').strip()
                 if val:
                     rutas_pdf.append(Path(val))
+        
+        raiz_swift = self.config['RUTAS_PRINCIPALES'].get('raiz_swift', '').strip()
 
-        return {
-            "base_paypal": Path(
-                self.config["RUTAS_PRINCIPALES"].get("base_paypal", "")
-            ),
-            "ruta_maestro": Path(
-                self.config["RUTAS_PRINCIPALES"].get("ruta_maestro", "")
-            ),
-            "rutas_pdf": rutas_pdf,
+        return{
+            'base_paypal': Path(self.config['RUTAS_PRINCIPALES'].get('base_paypal', '')),
+            'ruta_maestro': Path(self.config['RUTAS_PRINCIPALES'].get('ruta_maestro', '')),
+            'rutas_pdf': rutas_pdf,
+            'raiz_swift_latam': Path(raiz_swift) if raiz_swift else None
         }
 
     def guardar_config(
-        self, base_paypal: str, ruta_maestro: str, rutas_pdf: list) -> bool:
+        self, base_paypal: str, ruta_maestro: str, rutas_pdf: list, raiz_swift_latam: Optional[str] = None) -> bool:
         """Guarda las rutas en el archivo .ini."""
         try:
             self.config["RUTAS_PRINCIPALES"] = {
                 "base_paypal": base_paypal,
                 "ruta_maestro": ruta_maestro,
+                "raiz_swift_latam": raiz_swift_latam if raiz_swift_latam else '',
             }
 
             pdf_section: dict = {"total": str(len(rutas_pdf))}

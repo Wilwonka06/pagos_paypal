@@ -55,9 +55,9 @@ if exist "%PROJECT_ROOT%build" (
 )
 
 REM Remove old spec file if exists
-if exist "%PROJECT_ROOT%Control_p_Paypal.spec" (
+if exist "%PROJECT_ROOT%pagosPaypal.spec" (
     echo Removing old spec file...
-    del /f /q "%PROJECT_ROOT%Control_p_Paypal.spec" >nul 2>&1
+    del /f /q "%PROJECT_ROOT%pagosPaypal.spec" >nul 2>&1
     echo [OK] Old spec file removed
 )
 
@@ -82,7 +82,7 @@ if not exist "%PROJECT_ROOT%main.py" (
     exit /b 1
 )
 echo [OK] main.py found
-if not exist "%PROJECT_ROOT%verificacion.py" (
+if not exist "%PROJECT_ROOT%scripts\verificacion.py" (
     echo [ERROR] verificacion.py not found!
     pause
     exit /b 1
@@ -120,7 +120,7 @@ if "%HAS_ICON%"=="1" (
         --add-data "logo.ico;." ^
         --windowed ^
         --onedir ^
-        --name "Control_p_Paypal" ^
+        --name "Pagos paypal RPA" ^
         --distpath "%OUTPUT_DIR%" ^
         --workpath "%PROJECT_ROOT%build" ^
         --clean ^
@@ -138,7 +138,7 @@ if "%HAS_ICON%"=="1" (
     "%PYTHON_PATH%" -m PyInstaller ^
         --windowed ^
         --onedir ^
-        --name "Control_p_Paypal" ^
+        --name "Pagos paypal RPA" ^
         --distpath "%OUTPUT_DIR%" ^
         --workpath "%PROJECT_ROOT%build" ^
         --clean ^
@@ -174,7 +174,7 @@ echo STEP 5: Verifying Build
 echo ================================================================================
 echo.
 
-set EXE_PATH=%OUTPUT_DIR%\Control_p_Paypal\Control_p_Paypal.exe
+set EXE_PATH=%OUTPUT_DIR%\Pagos paypal RPA\Pagos paypal RPA.exe
 if exist "%EXE_PATH%" (
     echo [OK] Executable created successfully!
     echo.
@@ -186,7 +186,7 @@ if exist "%EXE_PATH%" (
     echo File size: %SIZE% bytes
     echo.
     
-    echo You can now distribute the Control_p_Paypal folder with all its contents.
+    echo You can now distribute the Pagos paypal RPA folder with all its contents.
     echo.
 ) else (
     echo [WARNING] Executable not found at expected location: %EXE_PATH%
@@ -214,20 +214,20 @@ echo   - Default output: O:\Finanzas\Info Bancos\Pagos Internacionales\PAYPAL
 echo.
 echo To rebuild:
 echo   1. Run this script again
-echo   2. Or run: "%PYTHON_PATH%" -m PyInstaller Control_p_Paypal.spec
+echo   2. Or run: "%PYTHON_PATH%" -m PyInstaller Pagos paypal RPA.spec
 echo.
 echo IMPORTANT NOTES:
 echo   - The executable is portable and includes all dependencies
-echo   - Distribute the entire Control_p_Paypal folder, not just the .exe
+echo   - Distribute the entire Pagos paypal RPA folder, not just the .exe
 echo   - Users may need Visual C++ Redistributable installed
 echo   - The first run may be slower as it unpacks dependencies
 echo.
 echo To test the executable:
-echo   1. Navigate to: %OUTPUT_DIR%\Control_p_Paypal
-echo   2. Run: Control_p_Paypal.exe
+echo   1. Navigate to: %OUTPUT_DIR%\Pagos paypal RPA
+echo   2. Run: Pagos paypal RPA.exe
 echo.
 echo NOTE: By default, the executable is created in:
-echo       O:\Finanzas\Info Bancos\Pagos Internacionales\PAYPAL\Control_p_Paypal\
+echo       O:\Finanzas\Info Bancos\Pagos Internacionales\PAYPAL\Pagos paypal RPA\
 echo.
 pause
 exit /b 0
