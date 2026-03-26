@@ -220,9 +220,10 @@ class DescargadorSAP:
         try:
             from selenium.webdriver.chrome.service import Service
             from subprocess import CREATE_NO_WINDOW
-            
+            from webdriver_manager.chrome import ChromeDriverManager
+
             options = webdriver.ChromeOptions()
-            
+
             # Desactivar logs innecesarios de la consola
             options.add_argument("--log-level=3")
             options.add_experimental_option('excludeSwitches', ['enable-logging'])
@@ -233,15 +234,15 @@ class DescargadorSAP:
                 "safebrowsing.enabled": True,
             }
             options.add_experimental_option("prefs", prefs)
-            
-            # Configurar el servicio para evitar ventanas de consola y ruidos
-            service = Service()
+
+            # ChromeDriverManager descarga/cachea el driver en ~/.wdm (funciona desde .exe)
+            service = Service(ChromeDriverManager().install())
             service.creation_flags = CREATE_NO_WINDOW
-            
+
             driver = webdriver.Chrome(options=options, service=service)
             self.logger.info("Navegador Google Chrome configurado correctamente")
             return driver
-        
+
         except Exception as e:
             self.logger.error(f"Error al configurar Google Chrome: {e}")
             raise
@@ -995,7 +996,7 @@ class GestorPDFs:
     """Maneja búsqueda, extracción y validación de PDFs"""
     
     def __init__(self, rutad_pdf: List[Path]):
-        rutas_dinamicas = resolver_rutas_swift_dinamicas(self.RAIZ_SWIFT_LATAM)
+        rutas_dinamicas = resolver_rutas_swift_dinamicas(Config.RAIZ_SWIFT_LATAM)
         self.rutad_pdf = rutas_dinamicas if rutas_dinamicas else rutad_pdf
         self.logger = logging.getLogger(__name__)
     

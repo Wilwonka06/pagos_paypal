@@ -3,6 +3,7 @@ customtkinter>=5.2.0
 
 # Automatización web
 selenium>=4.15.0
+webdriver-manager>=4.0.0
 
 # Procesamiento de Excel
 pandas>=2.1.0

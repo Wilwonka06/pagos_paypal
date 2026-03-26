@@ -11,7 +11,7 @@ import os
 # Importar clases de main.py
 from main import (
     Config, GestorCarpetas, DescargadorSAP, ProcesadorExcel,
-    GestorPDFs, configurar_logging
+    GestorPDFs, configurar_logging, resolver_rutas_swift_dinamicas
 )
 
 # NUEVO: Importar verificador/actualizador
@@ -914,7 +914,8 @@ class PaymentApp(ctk.CTk):
             self.log_message(" Iniciando búsqueda y actualización de soportes...")
             
             # Crear verificador/actualizador
-            verificador = VerificadorActualizadorSoportes(Config.RUTAS_PDF)
+            rutas_busqueda = resolver_rutas_swift_dinamicas(Config.RAIZ_SWIFT_LATAM) or Config.RUTAS_PDF
+            verificador = VerificadorActualizadorSoportes(rutas_busqueda)
             
             # Callback para progreso real
             def update_progress(p, msg):
@@ -1143,13 +1144,16 @@ class PaymentApp(ctk.CTk):
             if hasattr(self, 'progress_label'):
                 self.progress_label.configure(text="0%")
             if hasattr(self, 'btn_cancelar'):
-                self.btn_cancelar.configure(text="✕ Cancelar Operación", state="normal")
-            
-            # Limpiar botones extras de cancelación previa
-            if hasattr(self, 'running_frame'):
-                for widget in self.running_frame.winfo_children():
-                    if hasattr(widget, 'name_id') and widget.name_id == 'volver_cancel_frame':
-                        widget.destroy()
+                self.btn_cancelar.configure(
+                    state="normal",
+                    text="✕ Cancelar Operación",
+                    fg_color="transparent",
+                    border_color=COLOR_ERROR,
+                    border_width=1,
+                    text_color=COLOR_ERROR,
+                    hover_color=("#FFEBEE", "#331111"),
+                    command=self.cancel_process,
+                )
             
             # Resetear iconos de pasos
             for step_id, _ in self.workflow_steps:
@@ -1293,51 +1297,31 @@ class PaymentApp(ctk.CTk):
         return False
     
     def _show_cancelled_state(self):
-        """Muestra el estado de proceso cancelado con una opción clara para volver"""
         def _update():
             if hasattr(self, 'current_step_label'):
-                self.current_step_label.configure(text="OPERACIÓN CANCELADA POR EL USUARIO", text_color=COLOR_ERROR)
-            
+                self.current_step_label.configure(
+                    text="⚠️  OPERACIÓN CANCELADA POR EL USUARIO",
+                    text_color=COLOR_ERROR
+                )
+ 
             if hasattr(self, 'main_progress'):
                 self.main_progress.set(0)
-            
+ 
             if hasattr(self, 'progress_label'):
                 self.progress_label.configure(text="CANCELADO")
-            
+ 
+            # Reutilizar btn_cancelar como botón de retorno — sin inyectar widgets nuevos
             if hasattr(self, 'btn_cancelar'):
-                self.btn_cancelar.configure(state="normal", text="✕ PROCESO DETENIDO", border_color=COLOR_ERROR)
-            
-            # Asegurar que el botón de volver sea muy visible
-            if hasattr(self, 'running_frame'):
-                # Eliminar si ya existe para evitar duplicados
-                for widget in self.running_frame.winfo_children():
-                    if hasattr(widget, 'name_id') and widget.name_id == 'volver_cancel_frame':
-                        widget.destroy()
-                
-                # Buscar el scroll_container para insertar dentro
-                target_container = None
-                for widget in self.running_frame.winfo_children():
-                    if isinstance(widget, ctk.CTkScrollableFrame):
-                        target_container = widget
-                        break
-                
-                if not target_container:
-                    target_container = self.running_frame
-
-                volver_frame = ctk.CTkFrame(target_container, fg_color="transparent")
-                volver_frame.name_id = 'volver_cancel_frame'
-                volver_frame.pack(fill="x", pady=20)
-                
-                btn_volver = ctk.CTkButton(
-                    volver_frame,
-                    text="↩️ VOLVER AL PANEL PRINCIPAL",
-                    command=self.back_to_idle_from_cancelled,
+                self.btn_cancelar.configure(
+                    state="normal",
+                    text="↩  Volver al inicio",
                     fg_color=COLOR_PRIMARY,
-                    hover_color="#169c46",
-                    font=("Roboto", 14, "bold"),
-                    height=50
+                    border_color=COLOR_PRIMARY,
+                    text_color="#FFFFFF",
+                    hover_color=("#060D6F", "#4A52A7"),
+                    command=self.back_to_idle_from_cancelled,
                 )
-                btn_volver.pack(expand=True)
+ 
         self.after(0, _update)
     
     def back_to_idle_from_cancelled(self):
@@ -1582,8 +1566,9 @@ class PaymentApp(ctk.CTk):
             value=str(rutas_actuales.get("ruta_maestro", ""))
         )
 
+        _raiz_raw = rutas_actuales.get("raiz_swift_latam", None)
         self.var_raiz_swift = ctk.StringVar(
-            value=str(rutas_actuales.get("raiz_swift_latam", ""))
+            value=str(_raiz_raw) if _raiz_raw is not None else ""
         )
 
         self._crear_campo_ruta(

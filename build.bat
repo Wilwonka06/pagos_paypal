@@ -14,7 +14,7 @@ set SCRIPT_DIR=%~dp0
 set PROJECT_ROOT=%SCRIPT_DIR%
 set PYTHON_PATH=python
 set VENV_PATH=%PROJECT_ROOT%venv
-set OUTPUT_DIR=O:\Finanzas\Info Bancos\Pagos Internacionales\PAYPAL
+set OUTPUT_DIR=C:\ejemplos de desarrollo
 
 REM ============================================================================
 REM STEP 1: INSTALL DEPENDENCIES
@@ -127,6 +127,8 @@ if "%HAS_ICON%"=="1" (
         --noupx ^
         --log-level WARN ^
         --hidden-import=selenium ^
+        --hidden-import=webdriver_manager ^
+        --hidden-import=webdriver_manager.chrome ^
         --hidden-import=pandas ^
         --hidden-import=openpyxl ^
         --hidden-import=fitz ^
@@ -145,6 +147,8 @@ if "%HAS_ICON%"=="1" (
         --noupx ^
         --log-level WARN ^
         --hidden-import=selenium ^
+        --hidden-import=webdriver_manager ^
+        --hidden-import=webdriver_manager.chrome ^
         --hidden-import=pandas ^
         --hidden-import=openpyxl ^
         --hidden-import=fitz ^
