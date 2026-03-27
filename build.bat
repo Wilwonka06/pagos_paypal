@@ -2,7 +2,6 @@
 chcp 65001 >nul
 echo ================================================================================
 echo   PayPal Pagos - PyInstaller Build Script
-echo   Build Configuration for Windows Executable
 echo ================================================================================
 echo.
 
@@ -16,9 +15,24 @@ set PYTHON_PATH=python
 set VENV_PATH=%PROJECT_ROOT%venv
 set OUTPUT_DIR=C:\ejemplos de desarrollo
 
-REM ============================================================================
-REM STEP 1: INSTALL DEPENDENCIES
-REM ============================================================================
+echo.
+echo ================================================================================
+echo STEP 0: Verifying ChromeDriver
+echo ================================================================================
+echo.
+
+if not exist "%PROJECT_ROOT%chromedriver.exe" (
+    echo [ERROR] chromedriver.exe not found in project root!
+    echo.
+    echo Please download ChromeDriver v146 from:
+    echo   https://storage.googleapis.com/chrome-for-testing-public/146.0.7680.165/win64/chromedriver-win64.zip
+    echo.
+    echo Extract chromedriver.exe and place it in: %PROJECT_ROOT%
+    echo.
+    pause
+    exit /b 1
+)
+echo [OK] chromedriver.exe found
 
 echo.
 echo ================================================================================
@@ -100,10 +114,6 @@ if exist "%PROJECT_ROOT%logo.ico" (
 
 echo.
 
-REM ============================================================================
-REM STEP 4: RUN PYINSTALLER
-REM ============================================================================
-
 echo ================================================================================
 echo STEP 4: Building Executable with PyInstaller
 echo ================================================================================
@@ -113,48 +123,53 @@ echo Running PyInstaller...
 echo.
 
 REM Build command with conditional icon
+REM IMPORTANTE: Se incluye chromedriver.exe con --add-binary
 if "%HAS_ICON%"=="1" (
-    echo [INFO] Building with custom icon...
+    echo [INFO] Building with custom icon and embedded chromedriver...
     "%PYTHON_PATH%" -m PyInstaller ^
-        --icon=logo.ico ^
-        --add-data "logo.ico;." ^
-        --windowed ^
-        --onedir ^
-        --name "Pagos paypal RPA" ^
-        --distpath "%OUTPUT_DIR%" ^
-        --workpath "%PROJECT_ROOT%build" ^
-        --clean ^
-        --noupx ^
-        --log-level WARN ^
-        --hidden-import=selenium ^
-        --hidden-import=webdriver_manager ^
-        --hidden-import=webdriver_manager.chrome ^
-        --hidden-import=pandas ^
-        --hidden-import=openpyxl ^
-        --hidden-import=fitz ^
-        --hidden-import=customtkinter ^
-        --collect-all customtkinter ^
-        interfaz.py
+    --icon=logo.ico ^
+    --add-data "logo.ico;." ^
+    --add-binary "chromedriver.exe;." ^
+    --windowed ^
+    --onedir ^
+    --name "Pagos paypal RPA" ^
+    --distpath "%OUTPUT_DIR%" ^
+    --workpath "%PROJECT_ROOT%build" ^
+    --clean ^
+    --noupx ^
+    --log-level WARN ^
+    --collect-all selenium ^
+    --hidden-import=webdriver_manager ^
+    --hidden-import=webdriver_manager.chrome ^
+    --hidden-import=pandas ^
+    --hidden-import=openpyxl ^
+    --hidden-import=fitz ^
+    --hidden-import=customtkinter ^
+    --collect-all customtkinter ^
+    interfaz.py
 ) else (
-    echo [INFO] Building without custom icon...
+    echo [INFO] Building without custom icon but with embedded chromedriver...
     "%PYTHON_PATH%" -m PyInstaller ^
-        --windowed ^
-        --onedir ^
-        --name "Pagos paypal RPA" ^
-        --distpath "%OUTPUT_DIR%" ^
-        --workpath "%PROJECT_ROOT%build" ^
-        --clean ^
-        --noupx ^
-        --log-level WARN ^
-        --hidden-import=selenium ^
-        --hidden-import=webdriver_manager ^
-        --hidden-import=webdriver_manager.chrome ^
-        --hidden-import=pandas ^
-        --hidden-import=openpyxl ^
-        --hidden-import=fitz ^
-        --hidden-import=customtkinter ^
-        --collect-all customtkinter ^
-        interfaz.py
+    --icon=logo.ico ^
+    --add-data "logo.ico;." ^
+    --add-binary "chromedriver.exe;." ^
+    --windowed ^
+    --onedir ^
+    --name "Pagos paypal RPA" ^
+    --distpath "%OUTPUT_DIR%" ^
+    --workpath "%PROJECT_ROOT%build" ^
+    --clean ^
+    --noupx ^
+    --log-level WARN ^
+    --collect-all selenium ^
+    --hidden-import=webdriver_manager ^
+    --hidden-import=webdriver_manager.chrome ^
+    --hidden-import=pandas ^
+    --hidden-import=openpyxl ^
+    --hidden-import=fitz ^
+    --hidden-import=customtkinter ^
+    --collect-all customtkinter ^
+    interfaz.py
 )
 
 if %ERRORLEVEL% NEQ 0 (
@@ -168,10 +183,6 @@ if %ERRORLEVEL% NEQ 0 (
 echo.
 echo [OK] PyInstaller build completed successfully
 echo.
-
-REM ============================================================================
-REM STEP 5: VERIFY BUILD
-REM ============================================================================
 
 echo ================================================================================
 echo STEP 5: Verifying Build
@@ -188,6 +199,20 @@ if exist "%EXE_PATH%" (
     REM Get file size
     for %%A in ("%EXE_PATH%") do set SIZE=%%~zA
     echo File size: %SIZE% bytes
+    echo.
+    
+    REM Verify chromedriver was included
+    set DRIVER_PATH=%OUTPUT_DIR%\Pagos paypal RPA\chromedriver.exe
+    if exist "%DRIVER_PATH%" (
+        echo [OK] chromedriver.exe included in bundle
+    ) else (
+        echo [WARNING] chromedriver.exe NOT found in bundle - check _internal folder
+        if exist "%OUTPUT_DIR%\Pagos paypal RPA\_internal\chromedriver.exe" (
+            echo [OK] chromedriver.exe found in _internal folder
+        ) else (
+            echo [ERROR] chromedriver.exe missing from build!
+        )
+    )
     echo.
     
     echo You can now distribute the Pagos paypal RPA folder with all its contents.
@@ -211,6 +236,7 @@ echo ===========================================================================
 echo.
 echo Summary:
 echo   - Executable: %EXE_PATH%
+echo   - ChromeDriver: Embedded in bundle (for Chrome v146)
 echo   - Build folder: %PROJECT_ROOT%build
 echo   - Distribution folder: %OUTPUT_DIR%
 echo   - README: %README_PATH%
@@ -222,6 +248,7 @@ echo   2. Or run: "%PYTHON_PATH%" -m PyInstaller Pagos paypal RPA.spec
 echo.
 echo IMPORTANT NOTES:
 echo   - The executable is portable and includes all dependencies
+echo   - ChromeDriver v146 is embedded - ensure target machines have Chrome v146
 echo   - Distribute the entire Pagos paypal RPA folder, not just the .exe
 echo   - Users may need Visual C++ Redistributable installed
 echo   - The first run may be slower as it unpacks dependencies

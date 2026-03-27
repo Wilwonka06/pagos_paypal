@@ -3,6 +3,7 @@ import sys
 import time
 import shutil
 import logging
+import traceback
 from pathlib import Path
 from datetime import datetime
 from typing import Optional, List, Tuple
@@ -207,6 +208,65 @@ class GestorCarpetas:
 # FASE 2: DESCARGA DESDE SAP
 # ============================================================================
 
+def obtener_ruta_chromedriver() -> Path:
+    """
+    Obtiene la ruta al chromedriver según el contexto de ejecución:
+    - Si está corriendo desde .exe (frozen): busca en sys._MEIPASS
+    - Si está en desarrollo: usa webdriver-manager
+    
+    Returns:
+        Path al chromedriver.exe
+    """
+    logger = logging.getLogger(__name__)
+    
+    # Detectar si estamos corriendo desde un .exe empaquetado
+    if getattr(sys, 'frozen', False):
+        # Corriendo desde .exe - usar driver embebido
+        # sys._MEIPASS es la carpeta temporal donde PyInstaller desempaqueta
+        base_path = Path(sys._MEIPASS)
+        chromedriver_path = base_path / "chromedriver.exe"
+        
+        logger.info(f"[MODO PRODUCCIÓN] Buscando chromedriver en: {chromedriver_path}")
+        
+        if chromedriver_path.exists():
+            logger.info(f"[OK] ChromeDriver encontrado: {chromedriver_path}")
+            return chromedriver_path
+        else:
+            # Buscar también en la carpeta del ejecutable
+            exe_dir = Path(sys.executable).parent
+            chromedriver_alt = exe_dir / "chromedriver.exe"
+            
+            logger.info(f"[FALLBACK] Buscando chromedriver en: {chromedriver_alt}")
+            
+            if chromedriver_alt.exists():
+                logger.info(f"[OK] ChromeDriver encontrado en carpeta exe: {chromedriver_alt}")
+                return chromedriver_alt
+            
+            error_msg = (
+                f"ERROR CRÍTICO: chromedriver.exe no encontrado.\n"
+                f"Ubicaciones buscadas:\n"
+                f"  1. {chromedriver_path}\n"
+                f"  2. {chromedriver_alt}\n\n"
+                f"Por favor, asegúrese de que chromedriver.exe esté incluido en el build."
+            )
+            logger.error(error_msg)
+            raise FileNotFoundError(error_msg)
+    
+    else:
+        # Corriendo en desarrollo - usar webdriver-manager
+        logger.info("[MODO DESARROLLO] Usando webdriver-manager para obtener chromedriver")
+        
+        try:
+            from webdriver_manager.chrome import ChromeDriverManager
+            driver_path = ChromeDriverManager().install()
+            logger.info(f"[OK] ChromeDriver obtenido via webdriver-manager: {driver_path}")
+            return Path(driver_path)
+        
+        except Exception as e:
+            logger.error(f"Error al obtener chromedriver via webdriver-manager: {e}")
+            raise
+
+
 class DescargadorSAP:
     """Maneja la descarga de archivos desde SAP"""
     
@@ -216,18 +276,26 @@ class DescargadorSAP:
         self.download_path = Config.RUTA_DESCARGAS
     
     def configurar_chrome(self) -> webdriver.Chrome:
-        """Configura el navegador Google Chrome con opciones personalizadas"""
+        """
+        Configura el navegador Google Chrome con opciones personalizadas.
+        
+        IMPORTANTE: Esta función detecta automáticamente si está corriendo
+        desde un .exe (producción) o en modo desarrollo:
+        - Producción (.exe): Usa chromedriver.exe embebido en el bundle
+        - Desarrollo: Usa webdriver-manager para descargar el driver
+        """
         try:
             from selenium.webdriver.chrome.service import Service
             from subprocess import CREATE_NO_WINDOW
-            from webdriver_manager.chrome import ChromeDriverManager
 
+            # Configurar opciones de Chrome
             options = webdriver.ChromeOptions()
 
             # Desactivar logs innecesarios de la consola
             options.add_argument("--log-level=3")
             options.add_experimental_option('excludeSwitches', ['enable-logging'])
 
+            # Configurar preferencias de descarga
             prefs = {
                 "download.default_directory": str(self.download_path),
                 "download.prompt_for_download": False,
@@ -235,16 +303,35 @@ class DescargadorSAP:
             }
             options.add_experimental_option("prefs", prefs)
 
-            # ChromeDriverManager descarga/cachea el driver en ~/.wdm (funciona desde .exe)
-            service = Service(ChromeDriverManager().install())
-            service.creation_flags = CREATE_NO_WINDOW
+            # ============================================================
+            # OBTENER CHROMEDRIVER SEGÚN CONTEXTO (PRODUCCIÓN VS DESARROLLO)
+            # ============================================================
+            chromedriver_path = obtener_ruta_chromedriver()
+            
+            self.logger.info(f"Iniciando Chrome con driver: {chromedriver_path}")
+            
+            # Crear servicio con el driver obtenido
+            service = Service(
+            executable_path=str(chromedriver_path),
+            log_path="chromedriver.log"
+        )
 
+            self.logger.info(f"Driver path: {chromedriver_path}")
+            self.logger.info(f"Driver existe: {chromedriver_path.exists()}")
+            self.logger.info(f"Modo frozen: {getattr(sys, 'frozen', False)}")
+            
+            # Iniciar navegador
             driver = webdriver.Chrome(options=options, service=service)
             self.logger.info("Navegador Google Chrome configurado correctamente")
             return driver
 
+        except FileNotFoundError as e:
+            self.logger.error(f"ChromeDriver no encontrado: {e}")
+            raise
+
         except Exception as e:
-            self.logger.error(f"Error al configurar Google Chrome: {e}")
+            self.logger.error("Error completo Selenium:")
+            self.logger.error(traceback.format_exc())
             raise
     
     def esperar_descarga(self, timeout: int = Config.TIMEOUT_DOWNLOAD, patron_alternativo: str = None) -> Optional[Path]:
@@ -318,7 +405,7 @@ class DescargadorSAP:
         """
         try:
             self.numero_pago_actual = numero_pago
-            self.driver = self.configurar_chrome()
+            self.driver = self.configurar_chrome()  # si falla, se propaga (no se silencia)
             wait = WebDriverWait(self.driver, Config.TIMEOUT_SAP)
             
             # 1. Acceder a SAP
@@ -409,8 +496,8 @@ class DescargadorSAP:
         
         except Exception as e:
             self.logger.error(f"FALLO CRÍTICO EN DESCARGA SAP: {str(e)}")
-            return None
-        
+            raise  # propagar para que interfaz.py muestre el error real al usuario
+
         finally:
             if self.driver:
                 try:

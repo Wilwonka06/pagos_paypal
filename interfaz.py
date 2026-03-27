@@ -1344,15 +1344,30 @@ class PaymentApp(ctk.CTk):
         """Paso 2: Descargar de SAP"""
         self.log_message("📥 Descargando desde SAP...")
         try:
+            # DEBUG: Mostrar información de contexto
+            import sys, os
+            from tkinter import messagebox as mb
+            meipass = getattr(sys, '_MEIPASS', None)
+            driver_path = os.path.join(meipass, 'chromedriver.exe') if meipass else 'N/A'
+            driver_ok = os.path.exists(driver_path) if meipass else False
+            mb.showinfo("DEBUG SAP",
+                f"frozen={getattr(sys, 'frozen', False)}\n"
+                f"_MEIPASS={meipass or 'N/A'}\n"
+                f"chromedriver={driver_path}\n"
+                f"driver_existe={driver_ok}"
+            )
+            
             descargador = DescargadorSAP()
             archivo = descargador.descargar_reporte_sap(self.numero_pago)
             if archivo:
                 self.log_message(f" Archivo descargado: {archivo.name}")
             else:
-                self.log_message("⚠️ No se encontró archivo. Busque manualmente en Descargas.")
+                self.log_message(" No se encontró archivo. Busque manualmente en Descargas.")
         except Exception as e:
+            # DEBUG: Mostrar el error real
+            from tkinter import messagebox as mb
+            mb.showerror("ERROR SAP", f"Error al descargar:\n\n{type(e).__name__}: {e}")
             self.log_message(f" Error en descarga SAP: {e}")
-    
     def _search_pdfs(self):
         """Paso 4: Buscar PDFs"""
         self.log_message("📄 Buscando y validando documentos PDF...")
